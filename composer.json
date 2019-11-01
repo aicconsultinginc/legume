@@ -18,13 +18,13 @@
   "minimum-stability": "stable",
   "require": {
     "php": "^5.6 || >=7.2",
-    "ext-pthreads": ">=2.0",
     "monolog/monolog": "^1.22",
     "pda/pheanstalk": "~3.0",
     "pimple/pimple": "^3.0",
     "ulrichsg/getopt-php": "^3.0"
   },
   "suggest": {
+    "ext-pthreads": "Required for thread support",
     "ext-pcntl": "Required for daemon support on Posix systems",
     "ext-posix": "Recommended for Posix systems"
   },

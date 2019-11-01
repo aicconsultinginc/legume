@@ -32,9 +32,6 @@ class PheanstalkAdapter implements QueueAdaptorInterface
     /** @var Pheanstalk $client */
     protected $client;
 
-    /** @var DI $container */
-    protected $container;
-
 	/** @var callable[string] $jobs */
 	protected $jobs;
 
@@ -42,12 +39,11 @@ class PheanstalkAdapter implements QueueAdaptorInterface
     protected $log;
 
 	/**
-	 * @param DI $container
+	 * @param Pheanstalk $client
 	 */
-    public function __construct(DI $container)
+    public function __construct(Pheanstalk $client)
     {
-        $this->client = $container->get(Pheanstalk::class);
-        $this->container = $container;
+        $this->client = $client;
         $this->jobs = array();
 		$this->log = new NullLogger();
     }

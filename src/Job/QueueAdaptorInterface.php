@@ -24,11 +24,6 @@ use Psr\Log\LoggerAwareInterface;
 interface QueueAdaptorInterface extends LoggerAwareInterface
 {
 	/**
-	 * QueueAdaptorInterface
-	 */
-	public function __construct(DI $container);
-
-	/**
 	 * @param string $name
 	 * @param callable|string $callback
 	 */
@@ -41,7 +36,7 @@ interface QueueAdaptorInterface extends LoggerAwareInterface
 
     /**
      * @param int|null $timeout
-     * 
+     *
      * @return Stackable|null
      */
     public function listen($timeout = null);

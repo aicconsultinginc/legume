@@ -262,7 +262,7 @@ class Daemon implements LoggerAwareInterface
 			/** @var array $groupInfo */
 			$groupInfo = posix_getgrnam($group);
 			if (!isset($groupInfo["gid"])) {
-				$this->log->alert("Invalid processor group.");
+				$this->log->alert("Invalid process group name.");
 			} else if (!posix_setgid($groupInfo["gid"])) {
 				$this->log->alert("Failed to change processor group.");
 			}
@@ -273,7 +273,7 @@ class Daemon implements LoggerAwareInterface
 			/** @var array $userInfo */
 			$userInfo = posix_getpwnam($user);
 			if (!isset($userInfo["uid"])) {
-				$this->log->alert("Invalid pool user.");
+				$this->log->alert("Invalid process user name.");
 			} else if (!posix_setuid($userInfo["uid"])) {
 				$this->log->alert("Failed to change pool user.");
 			}
