@@ -52,12 +52,11 @@ class ThreadPool extends Pool implements ManagerInterface
 	protected $last;
 
 	/**
-	 * @param QueueAdaptorInterface $adaptor
-	 * @param string $autoload
+	 * @inheritdoc
 	 */
-    public function __construct(QueueAdaptorInterface $adaptor, $autoload)
+    public function __construct(QueueAdaptorInterface $adaptor)
     {
-        parent::__construct(1, ThreadWorker::class, array($autoload));
+        parent::__construct(1, ThreadWorker::class, array());
 
         $this->adaptor = $adaptor;
 		$this->log = new NullLogger();
@@ -88,9 +87,13 @@ class ThreadPool extends Pool implements ManagerInterface
 		$next = 0;
 		if ($this->size > 0) {
 			$next = ($this->last + 1) % $this->size;
-			foreach ($this->workers as $i => $worker) {
-				if (isset($this->workers[$next]) && $worker->getStacked() < $this->workers[$next]->getStacked()) {
-					$next = $i;
+			if (isset($this->workers[$next])) {
+				// If our next worker exists,
+				// Find the worker with the least amount of work.
+				foreach ($this->workers as $i => $worker) {
+					if ($worker->getStacked() < $this->workers[$next]->getStacked()) {
+						$next = $i;
+					}
 				}
 			}
 		}

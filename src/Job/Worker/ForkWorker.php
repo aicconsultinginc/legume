@@ -22,7 +22,7 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Worker;
 
-class ThreadWorker extends Worker
+class ForkWorker extends Worker
 {
     /** @var int $jobCount */
     protected $jobCount;
@@ -50,7 +50,40 @@ class ThreadWorker extends Worker
      */
     public function start($options = PTHREADS_INHERIT_ALL)
     {
-        return parent::start($options);
+		$res = pcntl_signal(SIGTERM, [$this, "signal"]);
+		$res &= pcntl_signal(SIGINT, [$this, "signal"]);
+		$res &= pcntl_signal(SIGHUP, [$this, "signal"]);
+		//$res &= pcntl_signal(SIGCHLD, [$this, "signal"]);
+		//$res &= pcntl_signal(SIGALRM, array($this, "signal"));
+		//$res &= pcntl_signal(SIGTSTP, array($this, "signal"));
+		//$res &= pcntl_signal(SIGCONT, array($this, "signal"));
+
+		if (! $res) {
+			throw new Exception("Function pcntl_signal() failed!");
+		}
+
+		$pid = pcntl_fork();
+		switch ($pid) {
+			case 0: // Child
+				$childPid = posix_getpid();
+
+				$this->log->notice("Starting worker process: {$childPid}.");
+
+				while ($this->isRunning()) {
+
+				}
+
+				$this->log->notice("Worker process {$childPid} complete.");
+				exit(0);
+
+			case -1: // Error
+				$msg = pcntl_strerror(pcntl_get_last_error());
+				throw new Exception("Function pcntl_fork() failed: {$msg}");
+
+			default: // Parent
+				$this->log->debug("Forked worker process: {$pid}");
+		}
+
     }
 
     /**

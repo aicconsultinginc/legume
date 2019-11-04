@@ -21,6 +21,7 @@ namespace Legume\Job\Manager;
 use Legume\Job\ManagerInterface;
 use Legume\Job\QueueAdaptorInterface;
 use Legume\Job\Stackable;
+use Legume\Job\Worker\ForkWorker;
 use Legume\Job\Worker\ThreadWorker;
 use Pool;
 use Psr\Log\LoggerInterface;
@@ -39,13 +40,16 @@ class ForkPool implements ManagerInterface
     /** @var boolean $running */
     protected $running;
 
+	/** @var int $size */
+	protected $size;
+
     /** @var int $startTime */
     protected $startTime;
 
     /** @var Threaded[int] */
     protected $work;
 
-	/** @var ThreadWorker[int] */
+	/** @var ForkWorker[int] */
 	protected $workers;
 
     /** @var int $last */
@@ -53,9 +57,8 @@ class ForkPool implements ManagerInterface
 
 	/**
 	 * @param QueueAdaptorInterface $adaptor
-	 * @param string $autoload
 	 */
-    public function __construct(QueueAdaptorInterface $adaptor, $autoload)
+    public function __construct(QueueAdaptorInterface $adaptor)
     {
         //parent::__construct(1, ThreadWorker::class, array($autoload));
 
@@ -73,9 +76,6 @@ class ForkPool implements ManagerInterface
      */
 	public function shutdown()
 	{
-		// Cleanup the workers and unstack jobs.
-		parent::shutdown();
-
 		$this->collect();
 		$this->running = false;
 	}
@@ -88,15 +88,17 @@ class ForkPool implements ManagerInterface
 		$next = 0;
 		if ($this->size > 0) {
 			$next = ($this->last + 1) % $this->size;
-			foreach ($this->workers as $i => $worker) {
-				if (isset($this->workers[$next]) && $worker->getStacked() < $this->workers[$next]->getStacked()) {
-					$next = $i;
+			if (isset($this->workers[$next])) {
+				foreach ($this->workers as $i => $worker) {
+					if ($worker->getStacked() < $this->workers[$next]->getStacked()) {
+						$next = $i;
+					}
 				}
 			}
 		}
 
 		if (!isset($this->workers[$next])) {
-			$this->workers[$next] = new $this->class(...$this->ctor);
+			$this->workers[$next] = new ForkWorker();
 			$this->workers[$next]->setLogger($this->log);
 			$this->workers[$next]->start();
 		}
@@ -220,4 +222,14 @@ class ForkPool implements ManagerInterface
     {
         $this->log = $logger;
     }
+
+	/**
+	 * Set the maximum number of Workers this Pool can create
+	 *
+	 * @param int $size
+	 */
+	public function resize($size)
+	{
+		$this->size = $size;
+	}
 }

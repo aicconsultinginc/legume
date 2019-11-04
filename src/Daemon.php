@@ -154,7 +154,7 @@ class Daemon implements LoggerAwareInterface
 
 
 		$container[PheanstalkAdapter::class] = function (DI $container) {
-			$adaptor = new PheanstalkAdapter($container);
+			$adaptor = new PheanstalkAdapter($container[Pheanstalk::class]);
 			$adaptor->setLogger($this->log);
 
 			$jobs = array("Example" => Job\Handler\Example::class);
@@ -331,7 +331,7 @@ class Daemon implements LoggerAwareInterface
 			}
 		} else {
 			$pid = posix_getpid();
-			if (! $this->writePid($pid)) {
+			if (!$this->writePid($pid)) {
 				throw new Exception("Failed to create pid file for the daemon process!");
 			}
 
