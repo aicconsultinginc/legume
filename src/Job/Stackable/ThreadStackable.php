@@ -16,15 +16,16 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-namespace Legume\Job;
+namespace Legume\Job\Stackable;
 
 use Exception;
+use Legume\Job\StackableInterface;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Threaded;
 
-class Stackable extends Threaded implements LoggerAwareInterface
+class ThreadStackable extends Threaded implements StackableInterface
 {
     /** @var callable $callable */
     protected $callable;

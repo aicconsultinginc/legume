@@ -21,38 +21,29 @@ namespace Legume\Job;
 use Psr\Container\ContainerInterface as DI;
 use Psr\Log\LoggerAwareInterface;
 
-interface QueueAdaptorInterface extends LoggerAwareInterface
+interface StackableInterface extends LoggerAwareInterface
 {
-	/**
-	 * @param string $name
-	 * @param callable|string $callback
-	 */
-	public function register($name, $callback);
-
-	/**
-	 * @param string $name
-	 */
-	public function unregister($name);
+    public function __construct(callable $callable, $id, $workload);
 
     /**
-     * @param int|null $timeout
+     * @return string
+     */
+    public function getId();
+
+    /**
+     * @return string
+     */
+    public function getData();
+
+
+    public function run();
+
+    /**
+     * Determine whether this Threaded has completed.
      *
-     * @return ThreadStackable|null
+     * @return boolean
      */
-    public function listen($timeout = null);
+    public function isComplete();
 
-    /**
-     * @param ThreadStackable $work
-     */
-    public function touch(ThreadStackable $work);
-
-    /**
-     * @param ThreadStackable $work
-     */
-    public function complete(ThreadStackable $work);
-
-    /**
-     * @param ThreadStackable $work
-     */
-    public function retry(ThreadStackable $work);
+    public function isTerminated();
 }

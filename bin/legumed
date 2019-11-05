@@ -3,13 +3,11 @@
 
 $status = 255;
 if (PHP_SAPI == "cli") {
-    $autoload = __DIR__ . "/../vendor/autoload.php";
-
     // Load the Composer auto-loader.
-    require_once($autoload);
+    require_once(__DIR__ . "/../vendor/autoload.php");
 
     // Create and start the new service.
-    $service = new Legume\Daemon($autoload);
+    $service = new Legume\Daemon();
     $status = $service->run();
 }
 

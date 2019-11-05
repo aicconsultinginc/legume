@@ -20,14 +20,11 @@ namespace Legume\Job\Manager;
 
 use Legume\Job\ManagerInterface;
 use Legume\Job\QueueAdaptorInterface;
-use Legume\Job\Stackable;
+use Legume\Job\ThreadStackable;
 use Legume\Job\Worker\ForkWorker;
-use Legume\Job\Worker\ThreadWorker;
-use Pool;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use RuntimeException;
-use Threaded;
 
 class ForkPool implements ManagerInterface
 {
@@ -80,6 +77,8 @@ class ForkPool implements ManagerInterface
 		$this->running = false;
 	}
 
+
+
     /**
      * @inheritdoc
      */
@@ -117,6 +116,7 @@ class ForkPool implements ManagerInterface
 
         $this->last = $worker;
         $this->work[] = $task;
+
         return $this->workers[$worker]->stack($task);
     }
 
@@ -142,11 +142,11 @@ class ForkPool implements ManagerInterface
     }
 
     /**
-     * @param Stackable $work
+     * @param ThreadStackable $work
      *
      * @return bool
      */
-    protected function collector(Stackable $work)
+    protected function collector(ThreadStackable $work)
     {
         $complete = $work->isComplete();
         if ($complete) {
@@ -185,7 +185,7 @@ class ForkPool implements ManagerInterface
 					} catch (RuntimeException $e) {
 						$this->log->warning($e->getMessage());
 					}
-				} else if (count($this->workers) > 0) {
+				} elseif (count($this->workers) > 0) {
 					// If there is no more work, clean-up works.
 					$this->log->debug("Checking " . count($this->workers) . " worker(s) for idle.");
 

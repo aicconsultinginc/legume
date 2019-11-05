@@ -20,7 +20,7 @@ namespace Legume\Job\Manager;
 
 use Legume\Job\ManagerInterface;
 use Legume\Job\QueueAdaptorInterface;
-use Legume\Job\Stackable;
+use Legume\Job\ThreadStackable;
 use Legume\Job\Worker\ThreadWorker;
 use Pool;
 use Psr\Log\LoggerInterface;
@@ -143,11 +143,11 @@ class ThreadPool extends Pool implements ManagerInterface
     }
 
     /**
-     * @param Stackable $work
+     * @param ThreadStackable $work
      *
      * @return bool
      */
-    protected function collector(Stackable $work)
+    protected function collector(ThreadStackable $work)
     {
         $complete = $work->isComplete();
         if ($complete) {

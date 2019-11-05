@@ -20,10 +20,9 @@ namespace Legume\Job\QueueAdapter;
 
 use Legume\Job\HandlerInterface;
 use Legume\Job\QueueAdaptorInterface;
-use Legume\Job\Stackable;
+use Legume\Job\Stackable\ThreadStackable;
 use Pheanstalk\Job;
 use Pheanstalk\Pheanstalk;
-use Psr\Container\ContainerInterface as DI;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
@@ -98,7 +97,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
 				}
 
 				if (is_callable($callable)) {
-            		$stackable = new Stackable(
+            		$stackable = new ThreadStackable(
 						$callable,
 						$job->getId(),
 						$job->getData()
@@ -117,7 +116,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
 	/**
 	 * @inheritdoc
 	 */
-    public function touch(Stackable $work)
+    public function touch(ThreadStackable $work)
     {
         $job = new Job($work->getId(), $work->getData());
 
@@ -127,7 +126,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
     /**
      * @inheritdoc
      */
-    public function complete(Stackable $work)
+    public function complete(ThreadStackable $work)
     {
         $job = new Job($work->getId(), $work->getData());
 
@@ -137,7 +136,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
     /**
      * @inheritdoc
      */
-    public function retry(Stackable $work)
+    public function retry(ThreadStackable $work)
     {
         $job = new Job($work->getId(), $work->getData());
 

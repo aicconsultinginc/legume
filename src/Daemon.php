@@ -22,6 +22,7 @@ use Exception;
 use GetOpt\Command;
 use GetOpt\GetOpt;
 use GetOpt\Option;
+use Legume\Job\Manager\ForkPool;
 use Legume\Job\Manager\ThreadPool;
 use Legume\Job\ManagerInterface;
 use Legume\Job\QueueAdapter\PheanstalkAdapter;
@@ -35,9 +36,6 @@ use Psr\Log\LoggerInterface;
 
 class Daemon implements LoggerAwareInterface
 {
-	/** @param string $autoload */
-	protected $autoload;
-
 	/** @var DI $container */
 	protected $container;
 
@@ -50,13 +48,8 @@ class Daemon implements LoggerAwareInterface
 	/** @var ManagerInterface $pool */
 	protected $pool;
 
-	/**
-	 * @param string $autoload
-	 */
-	public function __construct($autoload)
+	public function __construct()
 	{
-		$this->autoload = $autoload;
-
 		$this->container = new Container();
 		$this->loadDependencies($this->container);
 
@@ -179,12 +172,26 @@ class Daemon implements LoggerAwareInterface
 			/** @var int $size */
 			$size = $this->opts->getOption("size");
 
-			$pool = new ThreadPool($adapter, $this->autoload);
+			$pool = new ThreadPool($adapter);
 			$pool->setLogger($this->log);
 			$pool->resize($size);
 
 			return $pool;
 		};
+
+        $container[ForkPool::class] = function (DI $container) {
+            /** @var PheanstalkAdapter $adapter */
+            $adapter = $container->get(PheanstalkAdapter::class);
+
+            /** @var int $size */
+            $size = $this->opts->getOption("size");
+
+            $pool = new ForkPool($adapter);
+            $pool->setLogger($this->log);
+            $pool->resize($size);
+
+            return $pool;
+        };
 	}
 
 	/**
@@ -285,7 +292,7 @@ class Daemon implements LoggerAwareInterface
      */
 	protected function start()
     {
-		$this->pool = $this->container->get(ThreadPool::class);
+		$this->pool = $this->container->get(ForkPool::class);
 
 		if (function_exists("pcntl_async_signals")) {
 			pcntl_async_signals(true);
@@ -301,7 +308,7 @@ class Daemon implements LoggerAwareInterface
 		//$res &= pcntl_signal(SIGTSTP, array($this, "signal"));
 		//$res &= pcntl_signal(SIGCONT, array($this, "signal"));
 
-		if (! $res) {
+		if (!$res) {
 			throw new Exception("Function pcntl_signal() failed!");
 		}
 
