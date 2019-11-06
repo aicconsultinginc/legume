@@ -50,7 +50,7 @@ interface ManagerInterface extends LoggerAwareInterface
 	 *
 	 * @param int $size
 	 */
-	public function resize($size);
+	public function resize(int $size);
 
 	/**
 	 * Run loop for this worker process.

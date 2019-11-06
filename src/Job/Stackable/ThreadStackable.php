@@ -18,14 +18,14 @@
  */
 namespace Legume\Job\Stackable;
 
+use Collectable;
 use Exception;
 use Legume\Job\StackableInterface;
-use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Threaded;
 
-class ThreadStackable extends Threaded implements StackableInterface
+class ThreadStackable extends Threaded implements StackableInterface, Collectable
 {
     /** @var callable $callable */
     protected $callable;
@@ -39,8 +39,11 @@ class ThreadStackable extends Threaded implements StackableInterface
     /** @var string $workload */
     protected $workload;
 
-    /** @var boolean $complete */
+    /** @var bool $complete */
     protected $complete;
+
+	/** @var bool $terminated */
+	protected $terminated;
 
     /**
      * @param $callable $callable
@@ -60,11 +63,11 @@ class ThreadStackable extends Threaded implements StackableInterface
     public function run()
     {
         try {
-            // The dependency injector currently owns the callback, synchronize.
-            $status = call_user_func($this->callable, $this->id, $this->workload);
+            // The dependency injector currently owns the callback, synchronize?
+            call_user_func($this->callable, $this->id, $this->workload);
         } catch (Exception $e) {
-            $this->log->critical($e->getTraceAsString());
-			$status = 255;
+            $this->log->error($e->getMessage(), $e->getTrace());
+            $this->terminated = true;
         }
 
 		//$this->terminated = ($status > 0);
@@ -97,7 +100,22 @@ class ThreadStackable extends Threaded implements StackableInterface
         return $this->complete;
     }
 
-    /**
+    public function isTerminated()
+	{
+		return $this->terminated;
+	}
+
+	public function setGarbage()
+	{
+		return ;
+	}
+
+	public function isGarbage() : bool
+	{
+		return $this->isComplete();
+	}
+
+	/**
      * Sets a logger instance on the object.
      *
      * @param LoggerInterface $logger

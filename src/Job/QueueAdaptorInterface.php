@@ -18,7 +18,7 @@
  */
 namespace Legume\Job;
 
-use Psr\Container\ContainerInterface as DI;
+use Legume\Job\Stackable\ThreadStackable;
 use Psr\Log\LoggerAwareInterface;
 
 interface QueueAdaptorInterface extends LoggerAwareInterface
@@ -42,17 +42,17 @@ interface QueueAdaptorInterface extends LoggerAwareInterface
     public function listen($timeout = null);
 
     /**
-     * @param ThreadStackable $work
+     * @param StackableInterface $work
      */
-    public function touch(ThreadStackable $work);
+    public function touch(StackableInterface $work);
 
     /**
-     * @param ThreadStackable $work
+     * @param StackableInterface $work
      */
-    public function complete(ThreadStackable $work);
+    public function complete(StackableInterface $work);
 
     /**
-     * @param ThreadStackable $work
+     * @param StackableInterface $work
      */
-    public function retry(ThreadStackable $work);
+    public function retry(StackableInterface $work);
 }

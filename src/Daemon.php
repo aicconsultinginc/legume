@@ -292,7 +292,7 @@ class Daemon implements LoggerAwareInterface
      */
 	protected function start()
     {
-		$this->pool = $this->container->get(ForkPool::class);
+		$this->pool = $this->container->get(ThreadPool::class);
 
 		if (function_exists("pcntl_async_signals")) {
 			pcntl_async_signals(true);

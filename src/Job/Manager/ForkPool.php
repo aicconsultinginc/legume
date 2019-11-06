@@ -20,7 +20,6 @@ namespace Legume\Job\Manager;
 
 use Legume\Job\ManagerInterface;
 use Legume\Job\QueueAdaptorInterface;
-use Legume\Job\ThreadStackable;
 use Legume\Job\Worker\ForkWorker;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -43,9 +42,6 @@ class ForkPool implements ManagerInterface
     /** @var int $startTime */
     protected $startTime;
 
-    /** @var Threaded[int] */
-    protected $work;
-
 	/** @var ForkWorker[int] */
 	protected $workers;
 
@@ -62,7 +58,6 @@ class ForkPool implements ManagerInterface
         $this->adaptor = $adaptor;
 		$this->log = new NullLogger();
         $this->running = false;
-        $this->work = array();
 
         $this->workers = array();
         $this->last = 0;
@@ -73,7 +68,11 @@ class ForkPool implements ManagerInterface
      */
 	public function shutdown()
 	{
-		$this->collect();
+		foreach ($this->workers as $worker) {
+			$worker->shutdown();
+			$this->collect();
+		}
+
 		$this->running = false;
 	}
 
@@ -115,7 +114,6 @@ class ForkPool implements ManagerInterface
         }
 
         $this->last = $worker;
-        $this->work[] = $task;
 
         return $this->workers[$worker]->stack($task);
     }
@@ -172,9 +170,10 @@ class ForkPool implements ManagerInterface
 	{
 		$this->running = true;
 		$this->startTime = time();
+		$count = 0;
 
 		while ($this->running) {
-			if ($this->size > count($this->work)) {
+			if ($this->size > $count) {
 				$stackable = $this->adaptor->listen(5);
 
 				if ($stackable !== null) {
@@ -183,7 +182,7 @@ class ForkPool implements ManagerInterface
 					try {
 						$this->submit($stackable);
 					} catch (RuntimeException $e) {
-						$this->log->warning($e->getMessage());
+						$this->log->error($e->getMessage(), $e->getTrace());
 					}
 				} elseif (count($this->workers) > 0) {
 					// If there is no more work, clean-up works.
@@ -211,7 +210,7 @@ class ForkPool implements ManagerInterface
 				sleep(1);
 			}
 
-			$this->collect();
+			$count = $this->collect();
 		}
 	}
 
@@ -231,5 +230,36 @@ class ForkPool implements ManagerInterface
 	public function resize($size)
 	{
 		$this->size = $size;
+	}
+
+	/**
+	 * Signal handler for child process signals.
+	 *
+	 * @param int $number
+	 * @param mixed $info
+	 *
+	 * @throws Exception
+	 */
+	public function signal($number, $info = null)
+	{
+		$this->log->info("Process received signal: {$number}");
+
+		switch ($number) {
+			case SIGINT:
+				foreach ($this->workers as $worker) {
+					while($worker->shift());
+					$this->collect();
+				}
+			case SIGTERM:
+				$this->shutdown();
+				break;
+
+			case SIGHUP:
+				$this->shutdown();
+				break;
+
+			default:
+				// handle all other signals
+		}
 	}
 }

@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 namespace Legume\Job;
 
 use Psr\Container\ContainerInterface as DI;
@@ -23,27 +24,31 @@ use Psr\Log\LoggerAwareInterface;
 
 interface StackableInterface extends LoggerAwareInterface
 {
-    public function __construct(callable $callable, $id, $workload);
+	public function __construct(callable $callable, $id, $workload);
 
-    /**
-     * @return string
-     */
-    public function getId();
+	/**
+	 * @return string
+	 */
+	public function getId();
 
-    /**
-     * @return string
-     */
-    public function getData();
+	/**
+	 * @return string
+	 */
+	public function getData();
 
 
-    public function run();
+	public function run();
 
-    /**
-     * Determine whether this Threaded has completed.
-     *
-     * @return boolean
-     */
-    public function isComplete();
+	/**
+	 * Determine whether this Threaded has completed.
+	 *
+	 * @return boolean
+	 */
+	public function isComplete();
 
-    public function isTerminated();
+	public function isTerminated();
+
+	public function isGarbage();
+
+	public function setGarbage();
 }

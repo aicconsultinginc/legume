@@ -18,6 +18,7 @@
  */
 namespace Legume\Job\Worker;
 
+use Collectable;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Worker;
@@ -30,12 +31,16 @@ class ThreadWorker extends Worker
     /** @var int $startTime */
     protected $startTime;
 
-    public function __construct()
+	/** @var LoggerInterface */
+	private $log;
+
+	public function __construct()
     {
 		$this->log = new NullLogger();
     }
 
-    /**
+
+	/**
      * @inheritdoc
      */
     public function run()

@@ -20,7 +20,8 @@ namespace Legume\Job\Manager;
 
 use Legume\Job\ManagerInterface;
 use Legume\Job\QueueAdaptorInterface;
-use Legume\Job\ThreadStackable;
+use Legume\Job\Stackable\ThreadStackable;
+use Legume\Job\StackableInterface;
 use Legume\Job\Worker\ThreadWorker;
 use Pool;
 use Psr\Log\LoggerInterface;
@@ -41,9 +42,6 @@ class ThreadPool extends Pool implements ManagerInterface
 
     /** @var int $startTime */
     protected $startTime;
-
-    /** @var Threaded[int] */
-    protected $work;
 
 	/** @var ThreadWorker[int] */
 	protected $workers;
@@ -117,7 +115,7 @@ class ThreadPool extends Pool implements ManagerInterface
         }
 
         $this->last = $worker;
-        $this->work[] = $task;
+        //$this->work[] = $task;
         return $this->workers[$worker]->stack($task);
     }
 
@@ -126,45 +124,42 @@ class ThreadPool extends Pool implements ManagerInterface
      */
     public function collect($collector = null)
     {
-        if ($collector == null) {
-            $collector = array($this, "collector");
+		if ($collector == null) {
+			$collector = array($this, "collector");
+		}
+
+		$count = 0;
+		foreach ($this->workers as $i => $task) {
+            $count += $this->workers[$i]->collect($collector);
         }
 
-        // Create a temp work buffer to reorder preserved work.
-        $work = array();
-        foreach ($this->work as $i => $task) {
-            if (!call_user_func($collector, $task)) {
-                $work[] = $this->work[$i];
-            }
-        }
-        $this->work = $work;
-
-        return count($this->work);
+        return $count;
     }
 
-    /**
-     * @param ThreadStackable $work
-     *
-     * @return bool
-     */
-    protected function collector(ThreadStackable $work)
-    {
-        $complete = $work->isComplete();
-        if ($complete) {
-            if ($work->isTerminated()) {
-                $this->log->warning("Job {$work->getId()} failed and will be submitted for retry!");
-                $this->adaptor->retry($work);
-            } else {
-                $this->log->info("Job {$work->getId()} completed successfully.");
-                $this->adaptor->complete($work);
-            }
+
+	/**
+	 * @param StackableInterface $work
+	 *
+	 * @return bool
+	 */
+	public function collector(StackableInterface $work)
+	{
+		$complete = $work->isComplete();
+		if ($complete) {
+			if ($work->isTerminated()) {
+				$this->log->warning("Job {$work->getId()} failed and will be submitted for retry!");
+				$this->adaptor->retry($work);
+			} else {
+				$this->log->info("Job {$work->getId()} completed successfully.");
+				$this->adaptor->complete($work);
+			}
 		} else {
-            $this->log->debug("Requesting more time for job {$work->getId()}.");
-            $this->adaptor->touch($work);
-        }
+			$this->log->debug("Requesting more time for job {$work->getId()}.");
+			$this->adaptor->touch($work);
+		}
 
-        return $complete;
-    }
+		return $complete;
+	}
 
 	/**
 	 * @inheritdoc
@@ -174,8 +169,9 @@ class ThreadPool extends Pool implements ManagerInterface
 		$this->running = true;
 		$this->startTime = time();
 
+		$count = 0;
 		while ($this->running) {
-			if ($this->size > count($this->work)) {
+			if ($this->size > $count) {
 				$stackable = $this->adaptor->listen(5);
 
 				if ($stackable !== null) {
@@ -184,9 +180,9 @@ class ThreadPool extends Pool implements ManagerInterface
 					try {
 						$this->submit($stackable);
 					} catch (RuntimeException $e) {
-						$this->log->warning($e->getMessage());
+						$this->log->error($e->getMessage(), $e->getTrace());
 					}
-				} else if (count($this->workers) > 0) {
+				} elseif (count($this->workers) > 0) {
 					// If there is no more work, clean-up works.
 					$this->log->debug("Checking " . count($this->workers) . " worker(s) for idle.");
 
@@ -212,7 +208,7 @@ class ThreadPool extends Pool implements ManagerInterface
 				sleep(1);
 			}
 
-			$this->collect();
+			$count = $this->collect();
 		}
 	}
 
