@@ -20,12 +20,13 @@ namespace Legume\Job\Worker;
 
 use ArrayAccess;
 use Countable;
+use Legume\Job\FifoStreamFilter;
+use RuntimeException;
 use Legume\Job\Stackable\ThreadStackable;
 use Legume\Job\StackableInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Traversable;
-use Worker;
 
 class ForkWorker
 {
@@ -41,13 +42,6 @@ class ForkWorker
     public function __construct()
     {
 		$this->log = new NullLogger();
-
-		$fifo = "/tmp/test.sock";
-		if (posix_mkfifo($fifo, 0644)) {
-			//$this->fh = fopen($fifo, "r+");
-			//stream_set_blocking($this->fh, false);
-		}
-
 	}
 
     public function collect($collector = null)
@@ -63,8 +57,6 @@ class ForkWorker
      */
     public function run()
     {
-        $this->startTime = time();
-
 		while ($this->isRunning()) {
 			$work = $this->shift();
 
@@ -81,6 +73,22 @@ class ForkWorker
      */
     public function start($options = 0)
     {
+        $this->startTime = time();
+
+        $fifo = "/tmp/test.sock";
+        if (posix_mkfifo($fifo, 0644)) {
+            /*
+            $fh = fopen($fifo, "w+");
+            stream_set_blocking($fh, false);
+            $i = fwrite($fh, serialize(array()));
+            fclose($fh);
+            $this->log->notice("Put file content $i");
+            */
+        }
+
+        stream_filter_register("FifoStreamFilter", FifoStreamFilter::class);
+        $sock = stream_socket_client("unix://{$fifo}", $errno, $errst);
+
 		$res = pcntl_signal(SIGTERM, [$this, "signal"]);
 		$res &= pcntl_signal(SIGINT, [$this, "signal"]);
 		$res &= pcntl_signal(SIGHUP, [$this, "signal"]);
@@ -90,7 +98,7 @@ class ForkWorker
 		//$res &= pcntl_signal(SIGCONT, array($this, "signal"));
 
 		if (!$res) {
-			throw new Exception("Function pcntl_signal() failed!");
+			throw new RuntimeException("Function pcntl_signal() failed!");
 		}
 
 
@@ -100,8 +108,23 @@ class ForkWorker
 				$this->pid = posix_getpid();
 
 				$this->log->notice("Starting worker process: {$this->pid}.");
+                //$this->run();
 
-                $this->run();
+
+
+
+
+                stream_filter_prepend($sock, "FifoStreamFilter");
+                //stream_set_blocking($fh, false);
+
+                while (true) {
+                    $this->log->notice("Test1", [filesize($fifo)]);
+                    $contents = fread($sock, 10);
+                    $this->log->notice("Test2", [$contents]);
+                    sleep(5);
+                }
+
+                fclose($sock);
 
 				$this->log->notice("Worker process {$this->pid} complete.");
 				exit(0);
@@ -121,15 +144,26 @@ class ForkWorker
      */
     public function stack(&$work)
     {
+        /*
 		$fh = fopen("/tmp/test.sock", "r+");
+        stream_set_blocking($fh, false);
 
+        var_dump(stream_get_contents($fh));
 		$stack = unserialize(stream_get_contents($fh));
 		$size = array_push($stack, $work);
-		file_put_contents($fh, serialize($stack));
+		fwrite($fh, serialize($stack));
 
 		fclose($fh);
+        */
+        $this->log->debug("Stacking work...");
+        $fh = fopen("/tmp/test.sock", "a");
+        //stream_set_blocking($fh, false);
+        fwrite($fh, serialize($work));
+        fflush($fh);
+        fclose($fh);
+        $this->log->debug("Work stacked...");
 
-		return $size;
+		return 1;
     }
 
     public function unstack()
@@ -140,7 +174,7 @@ class ForkWorker
 		$stack = unserialize(stream_get_contents($fh));
 		array_shift($stack);
 		$size = count($stack);
-		file_put_contents($fh, serialize($stack));
+		fwrite($fh, serialize($stack));
 
 		fclose($fh);
     	*/
@@ -155,10 +189,12 @@ class ForkWorker
 	public function shift()
 	{
 		$fh = fopen("/tmp/test.sock", "r+");
-
+        $this->log->error("Get Stack");
 		$stack = unserialize(stream_get_contents($fh));
+		$this->log->error("Got Stack");
 		$work = array_shift($stack);
-		file_put_contents($fh, serialize($stack));
+		var_dump($work);
+		fwrite($fh, serialize($stack));
 
 		fclose($fh);
 
@@ -192,7 +228,9 @@ class ForkWorker
 	 * @link https://secure.php.net/manual/en/worker.isworking.php
 	 * @return bool <p>A boolean indication of state</p>
 	 */
-	public function isWorking() {}
+	public function isWorking() {
+
+    }
 
 	/**
 	 * (PECL pthreads &gt;= 2.0.0)<br/>
@@ -205,7 +243,6 @@ class ForkWorker
 		posix_kill($this->pid, SIGHUP);
 	}
 
-
     /**
      * Sets a logger instance on the object.
      *
@@ -216,5 +253,45 @@ class ForkWorker
     public function setLogger(LoggerInterface $logger)
     {
         $this->log = $logger;
+    }
+
+
+    /**
+     * Signal handler for child process signals.
+     *
+     * @param int $number
+     * @param mixed $info
+     *
+     * @throws Exception
+     */
+    public function signal($number, $info = null)
+    {
+        $this->log->info("Worker received signal: {$number}");
+
+        switch ($number) {
+            case SIGTERM:
+                break;
+            /*
+            case SIGINT:
+                foreach ($this->workers as $worker) {
+                    while($worker->shift());
+                    $this->collect();
+                }
+            case SIGTERM:
+                $this->shutdown();
+                break;
+
+            case SIGHUP:
+                $this->shutdown();
+                break;
+            */
+            default:
+                // handle all other signals
+        }
+    }
+
+    public function isRunning()
+    {
+        return true;
     }
 }

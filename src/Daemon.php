@@ -26,6 +26,7 @@ use Legume\Job\Manager\ForkPool;
 use Legume\Job\Manager\ThreadPool;
 use Legume\Job\ManagerInterface;
 use Legume\Job\QueueAdapter\PheanstalkAdapter;
+use Monolog\Handler\ErrorLogHandler;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\SyslogHandler;
 use Monolog\Logger;
@@ -292,28 +293,28 @@ class Daemon implements LoggerAwareInterface
      */
 	protected function start()
     {
-		$this->pool = $this->container->get(ThreadPool::class);
-
-		if (function_exists("pcntl_async_signals")) {
-			pcntl_async_signals(true);
-		} else {
-			declare(ticks = 1);
-		}
-
-		$res = pcntl_signal(SIGTERM, [$this, "signal"]);
-		$res &= pcntl_signal(SIGINT, [$this, "signal"]);
-		$res &= pcntl_signal(SIGHUP, [$this, "signal"]);
-		//$res &= pcntl_signal(SIGCHLD, [$this, "signal"]);
-		//$res &= pcntl_signal(SIGALRM, array($this, "signal"));
-		//$res &= pcntl_signal(SIGTSTP, array($this, "signal"));
-		//$res &= pcntl_signal(SIGCONT, array($this, "signal"));
-
-		if (!$res) {
-			throw new Exception("Function pcntl_signal() failed!");
-		}
+		$this->pool = $this->container->get(ForkPool::class);
 
 		$daemon = $this->opts->getOption("daemon");
-		if ($daemon !== null) {
+		if ($daemon) {
+            if (function_exists("pcntl_async_signals")) {
+                pcntl_async_signals(true);
+            } else {
+                declare(ticks = 1);
+            }
+
+            $res = pcntl_signal(SIGTERM, [$this, "signal"]);
+            $res &= pcntl_signal(SIGINT, [$this, "signal"]);
+            $res &= pcntl_signal(SIGHUP, [$this, "signal"]);
+            //$res &= pcntl_signal(SIGCHLD, [$this, "signal"]);
+            //$res &= pcntl_signal(SIGALRM, array($this, "signal"));
+            //$res &= pcntl_signal(SIGTSTP, array($this, "signal"));
+            //$res &= pcntl_signal(SIGCONT, array($this, "signal"));
+
+            if (!$res) {
+                throw new Exception("Function pcntl_signal() failed!");
+            }
+
 			$pid = pcntl_fork();
 			switch ($pid) {
 				case 0: // Child
@@ -426,7 +427,8 @@ class Daemon implements LoggerAwareInterface
 				}
 
 				$level = $levelMap[$verbose];
-				$this->log->pushHandler(new SyslogHandler($this->log->getName(), LOG_DAEMON, $level));
+				//$this->log->pushHandler(new SyslogHandler($this->log->getName(), LOG_DAEMON, $level));
+                $this->log->pushHandler(new ErrorLogHandler(ErrorLogHandler::SAPI, $level));
 			} else {
 				$this->log->pushHandler(new NullHandler(Logger::DEBUG));
 			}

@@ -20,6 +20,7 @@ namespace Legume\Job\QueueAdapter;
 
 use Legume\Job\HandlerInterface;
 use Legume\Job\QueueAdaptorInterface;
+use Legume\Job\Stackable\ForkStackable;
 use Legume\Job\Stackable\ThreadStackable;
 use Legume\Job\StackableInterface;
 use Pheanstalk\Job;
@@ -98,7 +99,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
 				}
 
 				if (is_callable($callable)) {
-            		$stackable = new ThreadStackable(
+            		$stackable = new ForkStackable(
 						$callable,
 						$job->getId(),
 						$job->getData()

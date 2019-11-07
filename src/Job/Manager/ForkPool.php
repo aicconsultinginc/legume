@@ -76,8 +76,6 @@ class ForkPool implements ManagerInterface
 		$this->running = false;
 	}
 
-
-
     /**
      * @inheritdoc
      */
@@ -87,6 +85,7 @@ class ForkPool implements ManagerInterface
 		if ($this->size > 0) {
 			$next = ($this->last + 1) % $this->size;
 			if (isset($this->workers[$next])) {
+			    // Find the worker with less work than our round-robin choice.
 				foreach ($this->workers as $i => $worker) {
 					if ($worker->getStacked() < $this->workers[$next]->getStacked()) {
 						$next = $i;
@@ -109,6 +108,7 @@ class ForkPool implements ManagerInterface
      */
     public function submitTo($worker, $task)
     {
+        $this->log->info("Submitting to worker.");
         if (!isset($this->workers[$worker])) {
             throw new RuntimeException("The selected worker ({$worker}) does not exist!");
         }
@@ -126,7 +126,7 @@ class ForkPool implements ManagerInterface
         if ($collector == null) {
             $collector = array($this, "collector");
         }
-
+/*
         // Create a temp work buffer to reorder preserved work.
         $work = array();
         foreach ($this->work as $i => $task) {
@@ -135,8 +135,8 @@ class ForkPool implements ManagerInterface
             }
         }
         $this->work = $work;
-
-        return count($this->work);
+*/
+        return 0;
     }
 
     /**
@@ -173,7 +173,7 @@ class ForkPool implements ManagerInterface
 		$count = 0;
 
 		while ($this->running) {
-			if ($this->size > $count) {
+			if (true || $this->size > $count) {
 				$stackable = $this->adaptor->listen(5);
 
 				if ($stackable !== null) {
@@ -184,7 +184,7 @@ class ForkPool implements ManagerInterface
 					} catch (RuntimeException $e) {
 						$this->log->error($e->getMessage(), $e->getTrace());
 					}
-				} elseif (count($this->workers) > 0) {
+				} elseif (false && count($this->workers) > 0) {
 					// If there is no more work, clean-up works.
 					$this->log->debug("Checking " . count($this->workers) . " worker(s) for idle.");
 
@@ -210,7 +210,7 @@ class ForkPool implements ManagerInterface
 				sleep(1);
 			}
 
-			$count = $this->collect();
+			//$count = $this->collect();
 		}
 	}
 
@@ -230,36 +230,5 @@ class ForkPool implements ManagerInterface
 	public function resize($size)
 	{
 		$this->size = $size;
-	}
-
-	/**
-	 * Signal handler for child process signals.
-	 *
-	 * @param int $number
-	 * @param mixed $info
-	 *
-	 * @throws Exception
-	 */
-	public function signal($number, $info = null)
-	{
-		$this->log->info("Process received signal: {$number}");
-
-		switch ($number) {
-			case SIGINT:
-				foreach ($this->workers as $worker) {
-					while($worker->shift());
-					$this->collect();
-				}
-			case SIGTERM:
-				$this->shutdown();
-				break;
-
-			case SIGHUP:
-				$this->shutdown();
-				break;
-
-			default:
-				// handle all other signals
-		}
 	}
 }

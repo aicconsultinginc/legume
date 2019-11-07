@@ -18,7 +18,6 @@
  */
 namespace Legume\Job\Worker;
 
-use Collectable;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Worker;
@@ -38,7 +37,6 @@ class ThreadWorker extends Worker
     {
 		$this->log = new NullLogger();
     }
-
 
 	/**
      * @inheritdoc
