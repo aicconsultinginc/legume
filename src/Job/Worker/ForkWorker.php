@@ -76,18 +76,18 @@ class ForkWorker
         $this->startTime = time();
 
         $fifo = "/tmp/test.sock";
-        if (posix_mkfifo($fifo, 0644)) {
-            /*
-            $fh = fopen($fifo, "w+");
-            stream_set_blocking($fh, false);
-            $i = fwrite($fh, serialize(array()));
-            fclose($fh);
-            $this->log->notice("Put file content $i");
-            */
+		/*
+		if (posix_mkfifo($fifo, 0644)) {
+			$fh = fopen($fifo, "w+");
+			stream_set_blocking($fh, false);
+			$i = fwrite($fh, serialize(array()));
+			fclose($fh);
+			$this->log->notice("Put file content $i");
         }
+		*/
 
         stream_filter_register("FifoStreamFilter", FifoStreamFilter::class);
-        $sock = stream_socket_client("unix://{$fifo}", $errno, $errst);
+        $this->socket = stream_socket_client("unix://{$fifo}", $errno, $errst);
 
 		$res = pcntl_signal(SIGTERM, [$this, "signal"]);
 		$res &= pcntl_signal(SIGINT, [$this, "signal"]);
@@ -114,17 +114,18 @@ class ForkWorker
 
 
 
-                stream_filter_prepend($sock, "FifoStreamFilter");
+                //stream_filter_prepend($this->socket , "FifoStreamFilter");
                 //stream_set_blocking($fh, false);
 
                 while (true) {
-                    $this->log->notice("Test1", [filesize($fifo)]);
-                    $contents = fread($sock, 10);
+                    $this->log->notice(  "Test1", [filesize($fifo)]);
+
+					$contents = stream_socket_recvfrom($this->socket, 10);
                     $this->log->notice("Test2", [$contents]);
                     sleep(5);
                 }
 
-                fclose($sock);
+                fclose($this->socket );
 
 				$this->log->notice("Worker process {$this->pid} complete.");
 				exit(0);
@@ -156,11 +157,13 @@ class ForkWorker
 		fclose($fh);
         */
         $this->log->debug("Stacking work...");
-        $fh = fopen("/tmp/test.sock", "a");
+        //$fh = fopen("/tmp/test.sock", "a");
         //stream_set_blocking($fh, false);
-        fwrite($fh, serialize($work));
-        fflush($fh);
-        fclose($fh);
+        //fwrite($this->socket, serialize($work));
+        //fflush($this->socket);
+
+		stream_socket_sendto($this->socket, serialize($work));
+
         $this->log->debug("Work stacked...");
 
 		return 1;
@@ -188,30 +191,20 @@ class ForkWorker
 	 */
 	public function shift()
 	{
-		$fh = fopen("/tmp/test.sock", "r+");
+		//$fh = fopen("/tmp/test.sock", "r+");
         $this->log->error("Get Stack");
-		$stack = unserialize(stream_get_contents($fh));
+		//$stack = unserialize(stream_get_contents($fh));
 		$this->log->error("Got Stack");
 		$work = array_shift($stack);
 		var_dump($work);
-		fwrite($fh, serialize($stack));
-
-		fclose($fh);
+		fwrite($this->socket, serialize($stack));
 
 		return $work;
 	}
 
     public function getStacked()
     {
-		$fh = fopen("/tmp/test.sock", "r");
-
-		/** @var ThreadStackable[] $work */
-		$stack = unserialize(stream_get_contents($fh));
-
-		fclose($fh);
-
-
-		return count($stack);
+		return 1;
     }
 
 	/**
