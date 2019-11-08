@@ -44,15 +44,20 @@ interface QueueAdaptorInterface extends LoggerAwareInterface
     /**
      * @param StackableInterface $work
      */
-    public function touch(StackableInterface $work);
-
-    /**
-     * @param StackableInterface $work
-     */
     public function complete(StackableInterface $work);
 
-    /**
-     * @param StackableInterface $work
-     */
+	/**
+	 * @param StackableInterface $work
+	 */
+	public function delete(StackableInterface $work);
+
+	/**
+	 * @param StackableInterface $work
+	 */
     public function retry(StackableInterface $work);
+
+    /**
+	 * @param StackableInterface $work
+	 */
+    public function touch(StackableInterface $work);
 }

@@ -50,16 +50,11 @@ class ForkPool implements ManagerInterface
 	/** @var int $last */
 	protected $last;
 
-	/** @var resource $socket */
-	private $socket;
-
 	/**
 	 * @param QueueAdaptorInterface $adaptor
 	 */
 	public function __construct(QueueAdaptorInterface $adaptor)
 	{
-		//parent::__construct(1, ThreadWorker::class, array($autoload));
-
 		$this->adaptor = $adaptor;
 		$this->log = new NullLogger();
 		$this->running = false;
@@ -152,6 +147,8 @@ class ForkPool implements ManagerInterface
 			if ($work->isTerminated()) {
 				$this->log->warning("Job {$work->getId()} failed and will be submitted for retry!");
 				$this->adaptor->retry($work);
+
+				// TODO There should be a retry count, then delete
 			} else {
 				$this->log->info("Job {$work->getId()} completed successfully.");
 				$this->adaptor->complete($work);

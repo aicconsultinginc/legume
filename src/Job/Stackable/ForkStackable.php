@@ -56,6 +56,7 @@ class ForkStackable implements StackableInterface
         $this->workload = $workload;
 
         $this->complete = false;
+        $this->terminated = false;
     }
 
     public function run()
@@ -68,7 +69,6 @@ class ForkStackable implements StackableInterface
             $this->terminated = true;
         }
 
-		//$this->terminated = ($status > 0);
         $this->complete = true;
     }
 

@@ -89,6 +89,11 @@ class ForkWorker
 			socket_set_block($this->socket);
 			$this->log->notice("While done");
 
+			foreach ($this->stack as $work) {
+				$this->socket_send($this->socket, $work);
+				$this->log->notice("Socket Touch");
+			}
+
 			$this->log->notice("Worker processing...");
 			$work = array_shift($this->stack);
 			if ($work) {
@@ -112,18 +117,6 @@ class ForkWorker
     {
         $this->startTime = time();
 
-		$res = pcntl_signal(SIGCHLD, [$this, "signal"]);
-		//$res = pcntl_signal(SIGTERM, [$this, "signal"]);
-		//$res &= pcntl_signal(SIGINT, [$this, "signal"]);
-		//$res &= pcntl_signal(SIGHUP, [$this, "signal"]);
-		//$res &= pcntl_signal(SIGCHLD, [$this, "signal"]);
-		//$res &= pcntl_signal(SIGALRM, array($this, "signal"));
-		//$res &= pcntl_signal(SIGTSTP, array($this, "signal"));
-		//$res &= pcntl_signal(SIGCONT, array($this, "signal"));
-
-		if (!$res) {
-			throw new RuntimeException("Function pcntl_signal() failed!");
-		}
 
         $this->log->debug("Create stream.");
         //$domain = strtoupper(substr(PHP_OS, 0, 3)) == 'WIN' ? AF_INET : AF_UNIX;
@@ -139,6 +132,21 @@ class ForkWorker
 				socket_close($parent);
 				$this->socket = $child;
 				$this->pid = posix_getpid();
+
+				$res = pcntl_signal(SIGCHLD, [$this, "signal"]);
+				$res &= pcntl_signal(SIGHUP, [$this, "signal"]);
+
+				//$res = pcntl_signal(SIGTERM, [$this, "signal"]);
+				//$res &= pcntl_signal(SIGINT, [$this, "signal"]);
+				//$res &= pcntl_signal(SIGCHLD, [$this, "signal"]);
+				//$res &= pcntl_signal(SIGALRM, array($this, "signal"));
+				//$res &= pcntl_signal(SIGTSTP, array($this, "signal"));
+				//$res &= pcntl_signal(SIGCONT, array($this, "signal"));
+
+				if (!$res) {
+					throw new RuntimeException("Function pcntl_signal() failed!");
+				}
+
 
 				$this->log->notice("Starting worker process: {$this->pid}.");
                 $this->run();
@@ -286,11 +294,13 @@ class ForkWorker
             case SIGTERM:
                 $this->shutdown();
                 break;
+            */
 
             case SIGHUP:
-                $this->shutdown();
+            	// Stop accepting new jobs.
+				socket_shutdown($this->socket, 0);
                 break;
-            */
+
             default:
                 // handle all other signals
         }

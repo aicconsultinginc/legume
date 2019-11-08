@@ -115,16 +115,6 @@ class PheanstalkAdapter implements QueueAdaptorInterface
         return $stackable;
     }
 
-	/**
-	 * @inheritdoc
-	 */
-    public function touch(StackableInterface $work)
-    {
-        $job = new Job($work->getId(), $work->getData());
-
-        $this->client->touch($job);
-    }
-
     /**
      * @inheritdoc
      */
@@ -135,6 +125,16 @@ class PheanstalkAdapter implements QueueAdaptorInterface
         $this->client->delete($job);
     }
 
+	/**
+	 * @inheritdoc
+	 */
+	public function delete(StackableInterface $work)
+	{
+		$job = new Job($work->getId(), $work->getData());
+
+		$this->client->delete($job);
+	}
+
     /**
      * @inheritdoc
      */
@@ -144,6 +144,16 @@ class PheanstalkAdapter implements QueueAdaptorInterface
 
         $this->client->release($job);
     }
+
+	/**
+	 * @inheritdoc
+	 */
+	public function touch(StackableInterface $work)
+	{
+		$job = new Job($work->getId(), $work->getData());
+
+		$this->client->touch($job);
+	}
 
 	/**
 	 * @inheritdoc
