@@ -21,6 +21,7 @@ namespace Legume\Job\Manager;
 
 use Legume\Job\ManagerInterface;
 use Legume\Job\QueueAdaptorInterface;
+use Legume\Job\Stackable\ForkStackable;
 use Legume\Job\Worker\ForkWorker;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
@@ -130,25 +131,21 @@ class ForkPool implements ManagerInterface
 		if ($collector == null) {
 			$collector = array($this, "collector");
 		}
-		/*
-				// Create a temp work buffer to reorder preserved work.
-				$work = array();
-				foreach ($this->work as $i => $task) {
-					if (!call_user_func($collector, $task)) {
-						$work[] = $this->work[$i];
-					}
-				}
-				$this->work = $work;
-		*/
-		return 0;
+
+		$count = 0;
+		foreach ($this->workers as $worker) {
+			$count += $worker->collect($collector);
+		}
+
+		return $count;
 	}
 
 	/**
-	 * @param ThreadStackable $work
+	 * @param ForkStackable $work
 	 *
 	 * @return bool
 	 */
-	protected function collector(ThreadStackable $work)
+	public function collector(ForkStackable $work)
 	{
 		$complete = $work->isComplete();
 		if ($complete) {
@@ -172,22 +169,12 @@ class ForkPool implements ManagerInterface
 	 */
 	public function run()
 	{
-		/*
-		$this->socket = socket_create(AF_UNIX, SOCK_STREAM, 0);
-		if ($this->socket === false) {
-			$errno =  socket_last_error();
-			throw new RuntimeException(socket_strerror($errno), $errno);
-		}
-		*/
-
-
-
 		$this->running = true;
 		$this->startTime = time();
 		$count = 0;
 
 		while ($this->running) {
-			if (true || $this->size > $count) {
+			if ($this->size > $count) {
 				$stackable = $this->adaptor->listen(5);
 
 				if ($stackable !== null) {
@@ -198,7 +185,7 @@ class ForkPool implements ManagerInterface
 					} catch (RuntimeException $e) {
 						$this->log->error($e->getMessage(), $e->getTrace());
 					}
-				} elseif (false && count($this->workers) > 0) {
+				} elseif (count($this->workers) > 0) {
 					// If there is no more work, clean-up works.
 					$this->log->debug("Checking " . count($this->workers) . " worker(s) for idle.");
 
@@ -224,7 +211,7 @@ class ForkPool implements ManagerInterface
 				sleep(1);
 			}
 
-			//$count = $this->collect();
+			$count = $this->collect();
 		}
 	}
 

@@ -21,6 +21,7 @@ namespace Legume\Job\Worker;
 use ArrayAccess;
 use Countable;
 use Legume\Job\FifoStreamFilter;
+use Legume\Job\Stackable\ForkStackable;
 use RuntimeException;
 use Legume\Job\Stackable\ThreadStackable;
 use Legume\Job\StackableInterface;
@@ -39,18 +40,40 @@ class ForkWorker
     /** @var int $pid */
     private $pid;
 
-    public function __construct()
+    /** @var ForkStackable[] $stack */
+    private $stack;
+
+    /** @var int $size */
+    private $size;
+
+	private $socket;
+
+	public function __construct()
     {
 		$this->log = new NullLogger();
+		$this->stack = array();
 	}
 
-    public function collect($collector = null)
+	public function __destruct()
+	{
+		socket_close($this->socket);
+	}
+
+	public function collect($collector = null)
     {
-        // Pool calls the collector
-        $fh = fopen("/tmp/test.sock", "r");
-		stream_set_blocking($fh, false);
-		fclose($fh);
-    }
+		socket_set_nonblock($this->socket);
+		while (($work = $this->socket_fetch($this->socket)) !== null) {
+			$this->log->notice("Collector Fetched", array($work));
+
+			if (call_user_func($collector, $work)) {
+				$this->size--;
+			}
+		}
+		socket_set_block($this->socket);
+
+		return $this->size;
+	}
+
 
     /**
      * @inheritdoc
@@ -58,11 +81,25 @@ class ForkWorker
     public function run()
     {
 		while ($this->isRunning()) {
-			$work = $this->shift();
+			socket_set_nonblock($this->socket);
+			while (($work = $this->socket_fetch($this->socket)) !== null) {
+				$this->log->notice("Socket Fetched");
+				$this->stack[] = $work;
+			}
+			socket_set_block($this->socket);
+			$this->log->notice("While done");
 
-			$work->run();
+			$this->log->notice("Worker processing...");
+			$work = array_shift($this->stack);
+			if ($work) {
+				$work->run();
 
-			$this->stack($work);
+				$this->socket_send($this->socket, $work);
+				$this->log->notice("Socket Sent");
+			} else {
+				$this->log->notice("Out of work");
+				sleep(1);
+			}
 		}
 	}
 
@@ -75,20 +112,10 @@ class ForkWorker
     {
         $this->startTime = time();
 
-        $fifo = "/tmp/test.sock";
-		/*
-		if (posix_mkfifo($fifo, 0644)) {
-			$fh = fopen($fifo, "w+");
-			stream_set_blocking($fh, false);
-			$i = fwrite($fh, serialize(array()));
-			fclose($fh);
-			$this->log->notice("Put file content $i");
-        }
-		*/
-
-		$res = pcntl_signal(SIGTERM, [$this, "signal"]);
-		$res &= pcntl_signal(SIGINT, [$this, "signal"]);
-		$res &= pcntl_signal(SIGHUP, [$this, "signal"]);
+		$res = pcntl_signal(SIGCHLD, [$this, "signal"]);
+		//$res = pcntl_signal(SIGTERM, [$this, "signal"]);
+		//$res &= pcntl_signal(SIGINT, [$this, "signal"]);
+		//$res &= pcntl_signal(SIGHUP, [$this, "signal"]);
 		//$res &= pcntl_signal(SIGCHLD, [$this, "signal"]);
 		//$res &= pcntl_signal(SIGALRM, array($this, "signal"));
 		//$res &= pcntl_signal(SIGTSTP, array($this, "signal"));
@@ -99,10 +126,9 @@ class ForkWorker
 		}
 
         $this->log->debug("Create stream.");
-        $sockets = array();
-        $domain = strtoupper(substr(PHP_OS, 0, 3)) == 'WIN' ? AF_INET : AF_UNIX;
-        if (socket_create_pair($domain, SOCK_STREAM, 0, $sockets) === false) {
-            throw new \RuntimeException("socket_create_pair failed: " . socket_strerror(socket_last_error()));
+        //$domain = strtoupper(substr(PHP_OS, 0, 3)) == 'WIN' ? AF_INET : AF_UNIX;
+        if (socket_create_pair(AF_UNIX, SOCK_STREAM, 0, $sockets) === false) {
+            throw new RuntimeException("socket_create_pair failed: " . socket_strerror(socket_last_error()));
         }
         list($child, $parent) = $sockets; // just to make the code below more readable
         unset($sockets);
@@ -110,25 +136,18 @@ class ForkWorker
 		$pid = pcntl_fork();
 		switch ($pid) {
 			case 0: // Child
-                socket_close($child);
-                $this->socket = $parent;
+				socket_close($parent);
+				$this->socket = $child;
 				$this->pid = posix_getpid();
 
 				$this->log->notice("Starting worker process: {$this->pid}.");
-                //$this->run();
+                $this->run();
 
-                //stream_filter_prepend($this->socket , "FifoStreamFilter");
-                //stream_set_blocking($fh, false);
+				socket_close($this->socket);
 
-                while (true) {
-                    // Send the result back to the parent.
-                    self::socket_send($parent, $result);
-
-                    $this->log->notice("Worker sleeping...");
-                    sleep(5);
-                }
-
-                stream_socket_shutdown($this->socket);
+                if (!pcntl_signal(SIGCHLD, SIG_DFL)) {
+					$this->log->notice("Failed to unregister SIGCHLD handler.");
+				}
 
 				$this->log->notice("Worker process {$this->pid} complete.");
 				exit(0);
@@ -138,11 +157,13 @@ class ForkWorker
 				throw new Exception("Function pcntl_fork() failed: {$msg}");
 
 			default: // Parent
-                socket_close($parent);
+				socket_close($child);
+				$this->socket = $parent;
+				$this->pid = $pid;
+
 				$this->log->debug("Forked worker process: {$pid}");
 
                 $this->log->debug("Saving child socket");
-                $this->socket = $child;
 		}
     }
 
@@ -152,28 +173,13 @@ class ForkWorker
      */
     public function stack(&$work)
     {
-        /*
-		$fh = fopen("/tmp/test.sock", "r+");
-        stream_set_blocking($fh, false);
-
-        var_dump(stream_get_contents($fh));
-		$stack = unserialize(stream_get_contents($fh));
-		$size = array_push($stack, $work);
-		fwrite($fh, serialize($stack));
-
-		fclose($fh);
-        */
         $this->log->debug("Stacking work...");
-        //$fh = fopen("/tmp/test.sock", "a");
-        //stream_set_blocking($fh, false);
-        //fwrite($this->socket, serialize($work));
-        //fflush($this->socket);
 
-		stream_socket_sendto($this->socket, serialize($work)."\0");
+		$this->socket_send($this->socket, $work);
 
-        $this->log->debug("Work stacked...");
+		$this->log->debug("Work stacked...");
 
-		return 1;
+		return ++$this->size;
     }
 
     public function unstack()
@@ -211,7 +217,7 @@ class ForkWorker
 
     public function getStacked()
     {
-		return 1;
+		return $this->size;
     }
 
 	/**
@@ -296,7 +302,7 @@ class ForkWorker
     }
 
     // https://github.com/lifo101/php-ipc/blob/master/src/Lifo/IPC/ProcessPool.php
-    public static function socket_send($socket, $data)
+    public function socket_send($socket, $data)
     {
         $serialized = serialize($data);
         $hdr = pack('N', strlen($serialized));    // 4 byte length
@@ -305,8 +311,7 @@ class ForkWorker
         while (true) {
             $sent = socket_write($socket, $buffer);
             if ($sent === false) {
-                // @todo handle error?
-                //$error = socket_strerror(socket_last_error());
+				$this->log->error(socket_strerror(socket_last_error()));
                 break;
             }
             if ($sent >= $total) {
@@ -318,7 +323,7 @@ class ForkWorker
     }
 
 
-    public static function socket_fetch($socket)
+    public function socket_fetch($socket)
     {
         // read 4 byte length first
         $hdr = '';

@@ -129,9 +129,9 @@ class ThreadPool extends Pool implements ManagerInterface
 		}
 
 		$count = 0;
-		foreach ($this->workers as $i => $task) {
-            $count += $this->workers[$i]->collect($collector);
-        }
+		foreach ($this->workers as $worker) {
+			$count += $worker->collect($collector);
+		}
 
         return $count;
     }
