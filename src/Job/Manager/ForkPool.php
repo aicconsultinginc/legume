@@ -180,11 +180,7 @@ class ForkPool implements ManagerInterface
 		}
 		*/
 
-		$this->log->debug("Create stream.");
-		$this->socket = stream_socket_server("unix:///tmp/test.sock", $errno, $errstr);
-		if ($this->socket === false) {
-			throw new RuntimeException($errstr, $errno);
-		}
+
 
 		$this->running = true;
 		$this->startTime = time();

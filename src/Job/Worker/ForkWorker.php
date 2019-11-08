@@ -86,9 +86,6 @@ class ForkWorker
         }
 		*/
 
-        stream_filter_register("FifoStreamFilter", FifoStreamFilter::class);
-        $this->socket = stream_socket_client("unix://{$fifo}", $errno, $errst);
-
 		$res = pcntl_signal(SIGTERM, [$this, "signal"]);
 		$res &= pcntl_signal(SIGINT, [$this, "signal"]);
 		$res &= pcntl_signal(SIGHUP, [$this, "signal"]);
@@ -101,31 +98,37 @@ class ForkWorker
 			throw new RuntimeException("Function pcntl_signal() failed!");
 		}
 
+        $this->log->debug("Create stream.");
+        $sockets = array();
+        $domain = strtoupper(substr(PHP_OS, 0, 3)) == 'WIN' ? AF_INET : AF_UNIX;
+        if (socket_create_pair($domain, SOCK_STREAM, 0, $sockets) === false) {
+            throw new \RuntimeException("socket_create_pair failed: " . socket_strerror(socket_last_error()));
+        }
+        list($child, $parent) = $sockets; // just to make the code below more readable
+        unset($sockets);
 
 		$pid = pcntl_fork();
 		switch ($pid) {
 			case 0: // Child
+                socket_close($child);
+                $this->socket = $parent;
 				$this->pid = posix_getpid();
 
 				$this->log->notice("Starting worker process: {$this->pid}.");
                 //$this->run();
 
-
-
-
-
                 //stream_filter_prepend($this->socket , "FifoStreamFilter");
                 //stream_set_blocking($fh, false);
 
                 while (true) {
-                    $this->log->notice(  "Test1", [filesize($fifo)]);
+                    // Send the result back to the parent.
+                    self::socket_send($parent, $result);
 
-					$contents = stream_socket_recvfrom($this->socket, 10);
-                    $this->log->notice("Test2", [$contents]);
+                    $this->log->notice("Worker sleeping...");
                     sleep(5);
                 }
 
-                fclose($this->socket );
+                stream_socket_shutdown($this->socket);
 
 				$this->log->notice("Worker process {$this->pid} complete.");
 				exit(0);
@@ -135,7 +138,11 @@ class ForkWorker
 				throw new Exception("Function pcntl_fork() failed: {$msg}");
 
 			default: // Parent
+                socket_close($parent);
 				$this->log->debug("Forked worker process: {$pid}");
+
+                $this->log->debug("Saving child socket");
+                $this->socket = $child;
 		}
     }
 
@@ -162,7 +169,7 @@ class ForkWorker
         //fwrite($this->socket, serialize($work));
         //fflush($this->socket);
 
-		stream_socket_sendto($this->socket, serialize($work));
+		stream_socket_sendto($this->socket, serialize($work)."\0");
 
         $this->log->debug("Work stacked...");
 
@@ -286,5 +293,53 @@ class ForkWorker
     public function isRunning()
     {
         return true;
+    }
+
+    // https://github.com/lifo101/php-ipc/blob/master/src/Lifo/IPC/ProcessPool.php
+    public static function socket_send($socket, $data)
+    {
+        $serialized = serialize($data);
+        $hdr = pack('N', strlen($serialized));    // 4 byte length
+        $buffer = $hdr . $serialized;
+        $total = strlen($buffer);
+        while (true) {
+            $sent = socket_write($socket, $buffer);
+            if ($sent === false) {
+                // @todo handle error?
+                //$error = socket_strerror(socket_last_error());
+                break;
+            }
+            if ($sent >= $total) {
+                break;
+            }
+            $total -= $sent;
+            $buffer = substr($buffer, $sent);
+        }
+    }
+
+
+    public static function socket_fetch($socket)
+    {
+        // read 4 byte length first
+        $hdr = '';
+        do {
+            $read = socket_read($socket, 4 - strlen($hdr));
+            if ($read === false or $read === '') {
+                return null;
+            }
+            $hdr .= $read;
+        } while (strlen($hdr) < 4);
+        list($len) = array_values(unpack("N", $hdr));
+        // read the full buffer
+        $buffer = '';
+        do {
+            $read = socket_read($socket, $len - strlen($buffer));
+            if ($read === false or $read == '') {
+                return null;
+            }
+            $buffer .= $read;
+        } while (strlen($buffer) < $len);
+        $data = unserialize($buffer);
+        return $data;
     }
 }
