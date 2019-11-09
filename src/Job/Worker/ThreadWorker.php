@@ -53,6 +53,7 @@ class ThreadWorker extends Worker
      */
     public function start($options = PTHREADS_INHERIT_ALL)
     {
+        $this->log->debug("Starting thread worker", array($this->getThreadId(), dechex($options)));
         return parent::start($options);
     }
 

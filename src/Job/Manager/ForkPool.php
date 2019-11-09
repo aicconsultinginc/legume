@@ -166,15 +166,18 @@ class ForkPool implements ManagerInterface
 	 */
 	public function run()
 	{
+        $this->startTime = time();
 		$this->running = true;
-		$this->startTime = time();
 		$count = 0;
 
 		while ($this->running) {
-			if ($this->size > $count) {
+		    // Check if the pool is at capacity.
+			if (($this->size * 1) > $count) {
+                // If the size of the pool is less than the stacked size...
 				$stackable = $this->adaptor->listen(5);
 
 				if ($stackable !== null) {
+				    // If we received work from the adaptor
 					$this->log->info("Pool received new job: {$stackable->getId()}");
 
 					try {
@@ -183,7 +186,7 @@ class ForkPool implements ManagerInterface
 						$this->log->error($e->getMessage(), $e->getTrace());
 					}
 				} elseif (count($this->workers) > 0) {
-					// If there is no more work, clean-up works.
+					// If there is no more work, clean-up workers.
 					$this->log->debug("Checking " . count($this->workers) . " worker(s) for idle.");
 
 					$workers = array();

@@ -18,16 +18,11 @@
  */
 namespace Legume\Job\Worker;
 
-use ArrayAccess;
-use Countable;
-use Legume\Job\FifoStreamFilter;
 use Legume\Job\Stackable\ForkStackable;
 use RuntimeException;
-use Legume\Job\Stackable\ThreadStackable;
 use Legume\Job\StackableInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
-use Traversable;
 
 class ForkWorker
 {
@@ -43,15 +38,19 @@ class ForkWorker
     /** @var ForkStackable[] $stack */
     private $stack;
 
+	private $socket;
+
+	/** @var bool $running */
+    private $running;
+
     /** @var int $size */
     private $size;
 
-	private $socket;
-
-	public function __construct()
+    public function __construct()
     {
 		$this->log = new NullLogger();
 		$this->stack = array();
+        $this->size = 0;
 	}
 
 	public function __destruct()
@@ -61,15 +60,13 @@ class ForkWorker
 
 	public function collect($collector = null)
     {
-		socket_set_nonblock($this->socket);
-		while (($work = $this->socket_fetch($this->socket)) !== null) {
+		while (($work = $this->ipcReceive()) !== null) {
 			$this->log->notice("Collector Fetched", array($work));
 
 			if (call_user_func($collector, $work)) {
 				$this->size--;
 			}
 		}
-		socket_set_block($this->socket);
 
 		return $this->size;
 	}
@@ -81,26 +78,27 @@ class ForkWorker
     public function run()
     {
 		while ($this->isRunning()) {
-			socket_set_nonblock($this->socket);
-			while (($work = $this->socket_fetch($this->socket)) !== null) {
-				$this->log->notice("Socket Fetched");
-				$this->stack[] = $work;
-			}
-			socket_set_block($this->socket);
-			$this->log->notice("While done");
-
-			foreach ($this->stack as $work) {
-				$this->socket_send($this->socket, $work);
-				$this->log->notice("Socket Touch");
-			}
+		    // Transfer pending work
+            while (($work = $this->ipcReceive()) !== null) {
+                $this->log->notice("Socket Fetched");
+                $this->stack[] = $work;
+            }
+            $this->log->notice("While done");
 
 			$this->log->notice("Worker processing...");
 			$work = array_shift($this->stack);
-			if ($work) {
+			if ($work !== null) {
 				$work->run();
 
-				$this->socket_send($this->socket, $work);
+				// Returned the processed work back to the pool
+				$this->ipcSend($this->socket, $work);
 				$this->log->notice("Socket Sent");
+
+				// Sync the remaining stacked work
+                foreach ($this->stack as $work) {
+                    $this->ipcSend($this->socket, $work);
+                    $this->log->notice("Socket Touch");
+                }
 			} else {
 				$this->log->notice("Out of work");
 				sleep(1);
@@ -116,7 +114,6 @@ class ForkWorker
     public function start($options = 0)
     {
         $this->startTime = time();
-
 
         $this->log->debug("Create stream.");
         //$domain = strtoupper(substr(PHP_OS, 0, 3)) == 'WIN' ? AF_INET : AF_UNIX;
@@ -183,7 +180,7 @@ class ForkWorker
     {
         $this->log->debug("Stacking work...");
 
-		$this->socket_send($this->socket, $work);
+		$this->ipcSend($this->socket, $work);
 
 		$this->log->debug("Work stacked...");
 
@@ -192,36 +189,14 @@ class ForkWorker
 
     public function unstack()
     {
-    	/*
-		$fh = fopen("/tmp/test.sock", "r+");
+        $this->log->debug("Unstacking work...");
 
-		$stack = unserialize(stream_get_contents($fh));
-		array_shift($stack);
-		$size = count($stack);
-		fwrite($fh, serialize($stack));
+        $this->ipcSend($this->socket, null);
 
-		fclose($fh);
-    	*/
-    	$this->shift();
+        $this->log->debug("Work unstacked...");
 
-		return $this->getStacked();
+        return --$this->size;
     }
-
-	/**
-	 * @return StackableInterface|null
-	 */
-	public function shift()
-	{
-		//$fh = fopen("/tmp/test.sock", "r+");
-        $this->log->error("Get Stack");
-		//$stack = unserialize(stream_get_contents($fh));
-		$this->log->error("Got Stack");
-		$work = array_shift($stack);
-		var_dump($work);
-		fwrite($this->socket, serialize($stack));
-
-		return $work;
-	}
 
     public function getStacked()
     {
@@ -234,7 +209,11 @@ class ForkWorker
 	 * @link https://secure.php.net/manual/en/worker.isshutdown.php
 	 * @return bool <p>Returns whether the worker has been shutdown or not</p>
 	 */
-	public function isShutdown() {}
+	public function isShutdown()
+    {
+        $this->log->notice("isShutdown", [posix_kill($this->pid, 0)]);
+        return posix_kill($this->pid, 0);
+    }
 
 	/**
 	 * (PECL pthreads &lt; 3.0.0)<br/>
@@ -242,7 +221,8 @@ class ForkWorker
 	 * @link https://secure.php.net/manual/en/worker.isworking.php
 	 * @return bool <p>A boolean indication of state</p>
 	 */
-	public function isWorking() {
+	public function isWorking()
+    {
 
     }
 
@@ -268,7 +248,6 @@ class ForkWorker
     {
         $this->log = $logger;
     }
-
 
     /**
      * Signal handler for child process signals.
@@ -308,11 +287,12 @@ class ForkWorker
 
     public function isRunning()
     {
-        return true;
+        return $this->running;
     }
 
     // https://github.com/lifo101/php-ipc/blob/master/src/Lifo/IPC/ProcessPool.php
-    public function socket_send($socket, $data)
+    /*
+    private function ipcSend($socket, $data)
     {
         $serialized = serialize($data);
         $hdr = pack('N', strlen($serialized));    // 4 byte length
@@ -332,29 +312,85 @@ class ForkWorker
         }
     }
 
-
-    public function socket_fetch($socket)
+    private function ipcReceive()
     {
         // read 4 byte length first
         $hdr = '';
         do {
-            $read = socket_read($socket, 4 - strlen($hdr));
-            if ($read === false or $read === '') {
+            $read = socket_read($this->socket, 4 - strlen($hdr));
+            if ($read === false || $read === '') {
                 return null;
             }
             $hdr .= $read;
         } while (strlen($hdr) < 4);
+
         list($len) = array_values(unpack("N", $hdr));
         // read the full buffer
         $buffer = '';
         do {
-            $read = socket_read($socket, $len - strlen($buffer));
+            $read = socket_read($this->socket, $len - strlen($buffer));
             if ($read === false or $read == '') {
                 return null;
             }
             $buffer .= $read;
         } while (strlen($buffer) < $len);
+
         $data = unserialize($buffer);
+        return $data;
+    }
+    */
+
+    private function ipcSend($data)
+    {
+        $serialized = serialize($data);
+        $hdr = pack('N', strlen($serialized));    // 4 byte length
+        $buffer = $hdr . $serialized;
+        $total = strlen($buffer);
+        while (true) {
+            $sent = socket_write($this->socket, $buffer);
+            if ($sent === false) {
+                $this->log->error(socket_strerror(socket_last_error()));
+                break;
+            }
+            if ($sent >= $total) {
+                break;
+            }
+            $total -= $sent;
+            $buffer = substr($buffer, $sent);
+        }
+    }
+
+    private function ipcReceive()
+    {
+        $sockets = array($this->socket);
+        $ok = @socket_select($sockets, $unused, $unused, 0);
+        if ($ok !== false && $ok > 0) {
+            $socket = array_shift($sockets);
+            // read 4 byte length first
+            $hdr = '';
+            do {
+                $read = socket_read($socket, 4 - strlen($hdr));
+                if ($read === false || $read === '') {
+                    return null;
+                }
+                $hdr .= $read;
+            } while (strlen($hdr) < 4);
+
+            list($len) = array_values(unpack("N", $hdr));
+            // read the full buffer
+            $buffer = '';
+            do {
+                $read = socket_read($socket, $len - strlen($buffer));
+                if ($read === false || $read == '') {
+                    return null;
+                }
+                $buffer .= $read;
+            } while (strlen($buffer) < $len);
+
+            $data = unserialize($buffer);
+        }
+
+
         return $data;
     }
 }

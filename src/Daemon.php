@@ -343,6 +343,24 @@ class Daemon implements LoggerAwareInterface
 				throw new Exception("Failed to create pid file for the daemon process!");
 			}
 
+            if (function_exists("pcntl_async_signals")) {
+                pcntl_async_signals(true);
+            } else {
+                declare(ticks = 1);
+            }
+
+            $res = pcntl_signal(SIGTERM, [$this, "signal"]);
+            $res &= pcntl_signal(SIGINT, [$this, "signal"]);
+            $res &= pcntl_signal(SIGHUP, [$this, "signal"]);
+            //$res &= pcntl_signal(SIGCHLD, [$this, "signal"]);
+            //$res &= pcntl_signal(SIGALRM, array($this, "signal"));
+            //$res &= pcntl_signal(SIGTSTP, array($this, "signal"));
+            //$res &= pcntl_signal(SIGCONT, array($this, "signal"));
+
+            if (!$res) {
+                throw new Exception("Function pcntl_signal() failed!");
+            }
+
 			$this->suExec();
 
 			$this->log->notice("Starting process: {$pid}.");
@@ -394,6 +412,7 @@ class Daemon implements LoggerAwareInterface
 				break;
 
             case SIGHUP:
+                $this->pool->shutdown();
 				break;
 
             default:
