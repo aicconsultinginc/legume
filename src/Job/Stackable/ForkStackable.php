@@ -103,16 +103,6 @@ class ForkStackable implements StackableInterface
 		return $this->terminated;
 	}
 
-	public function setGarbage()
-	{
-		return ;
-	}
-
-	public function isGarbage() : bool
-	{
-		return $this->isComplete();
-	}
-
 	/**
      * Sets a logger instance on the object.
      *

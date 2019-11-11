@@ -60,7 +60,7 @@ class ForkWorker
 
 	public function collect($collector = null)
     {
-		while (($work = $this->ipcReceive()) !== null) {
+		while (($work = $this->ipcReceive()) !== false) {
 			$this->log->notice("Collector Fetched", array($work));
 
 			if (call_user_func($collector, $work)) {
@@ -77,31 +77,32 @@ class ForkWorker
      */
     public function run()
     {
+    	$this->running = true;
+
 		while ($this->isRunning()) {
 		    // Transfer pending work
-            while (($work = $this->ipcReceive()) !== null) {
-                $this->log->notice("Socket Fetched");
+            while (($work = $this->ipcReceive()) !== false) {
+                $this->log->debug("IPC socket received", array($work));
                 $this->stack[] = $work;
             }
-            $this->log->notice("While done");
 
-			$this->log->notice("Worker processing...");
 			$work = array_shift($this->stack);
 			if ($work !== null) {
 				$work->run();
+				$this->log->notice("Worker processing", array($work->getId()));
 
 				// Returned the processed work back to the pool
-				$this->ipcSend($this->socket, $work);
-				$this->log->notice("Socket Sent");
+				$this->ipcSend($work);
+				$this->log->debug("IPC socket sent", array($work->getId()));
 
 				// Sync the remaining stacked work
                 foreach ($this->stack as $work) {
-                    $this->ipcSend($this->socket, $work);
-                    $this->log->notice("Socket Touch");
+                    $this->ipcSend($work);
+                    $this->log->debug("IPC socket touch", array($work->getId()));
                 }
 			} else {
-				$this->log->notice("Out of work");
-				sleep(1);
+				$this->log->notice("Worker sleeping");
+				sleep(5);
 			}
 		}
 	}
@@ -133,6 +134,7 @@ class ForkWorker
 				$res = pcntl_signal(SIGCHLD, [$this, "signal"]);
 				$res &= pcntl_signal(SIGHUP, [$this, "signal"]);
 
+
 				//$res = pcntl_signal(SIGTERM, [$this, "signal"]);
 				//$res &= pcntl_signal(SIGINT, [$this, "signal"]);
 				//$res &= pcntl_signal(SIGCHLD, [$this, "signal"]);
@@ -141,20 +143,20 @@ class ForkWorker
 				//$res &= pcntl_signal(SIGCONT, array($this, "signal"));
 
 				if (!$res) {
-					throw new RuntimeException("Function pcntl_signal() failed!");
+					throw new RuntimeException("Function pcntl_signal() failed");
 				}
 
 
-				$this->log->notice("Starting worker process: {$this->pid}.");
+				$this->log->debug("Starting worker process: {$this->pid}");
                 $this->run();
 
 				socket_close($this->socket);
 
                 if (!pcntl_signal(SIGCHLD, SIG_DFL)) {
-					$this->log->notice("Failed to unregister SIGCHLD handler.");
+					$this->log->notice("Failed to unregister SIGCHLD handler");
 				}
 
-				$this->log->notice("Worker process {$this->pid} complete.");
+				$this->log->debug("Worker process {$this->pid} complete");
 				exit(0);
 
 			case -1: // Error
@@ -167,8 +169,6 @@ class ForkWorker
 				$this->pid = $pid;
 
 				$this->log->debug("Forked worker process: {$pid}");
-
-                $this->log->debug("Saving child socket");
 		}
     }
 
@@ -178,24 +178,16 @@ class ForkWorker
      */
     public function stack(&$work)
     {
-        $this->log->debug("Stacking work...");
-
-		$this->ipcSend($this->socket, $work);
-
-		$this->log->debug("Work stacked...");
+		$this->ipcSend($work);
 
 		return ++$this->size;
     }
 
     public function unstack()
     {
-        $this->log->debug("Unstacking work...");
+        $this->ipcSend(null);
 
-        $this->ipcSend($this->socket, null);
-
-        $this->log->debug("Work unstacked...");
-
-        return --$this->size;
+        return $this->size;
     }
 
     public function getStacked()
@@ -291,54 +283,6 @@ class ForkWorker
     }
 
     // https://github.com/lifo101/php-ipc/blob/master/src/Lifo/IPC/ProcessPool.php
-    /*
-    private function ipcSend($socket, $data)
-    {
-        $serialized = serialize($data);
-        $hdr = pack('N', strlen($serialized));    // 4 byte length
-        $buffer = $hdr . $serialized;
-        $total = strlen($buffer);
-        while (true) {
-            $sent = socket_write($socket, $buffer);
-            if ($sent === false) {
-				$this->log->error(socket_strerror(socket_last_error()));
-                break;
-            }
-            if ($sent >= $total) {
-                break;
-            }
-            $total -= $sent;
-            $buffer = substr($buffer, $sent);
-        }
-    }
-
-    private function ipcReceive()
-    {
-        // read 4 byte length first
-        $hdr = '';
-        do {
-            $read = socket_read($this->socket, 4 - strlen($hdr));
-            if ($read === false || $read === '') {
-                return null;
-            }
-            $hdr .= $read;
-        } while (strlen($hdr) < 4);
-
-        list($len) = array_values(unpack("N", $hdr));
-        // read the full buffer
-        $buffer = '';
-        do {
-            $read = socket_read($this->socket, $len - strlen($buffer));
-            if ($read === false or $read == '') {
-                return null;
-            }
-            $buffer .= $read;
-        } while (strlen($buffer) < $len);
-
-        $data = unserialize($buffer);
-        return $data;
-    }
-    */
 
     private function ipcSend($data)
     {
@@ -362,6 +306,7 @@ class ForkWorker
 
     private function ipcReceive()
     {
+		$data = false;
         $sockets = array($this->socket);
         $ok = @socket_select($sockets, $unused, $unused, 0);
         if ($ok !== false && $ok > 0) {
@@ -371,7 +316,7 @@ class ForkWorker
             do {
                 $read = socket_read($socket, 4 - strlen($hdr));
                 if ($read === false || $read === '') {
-                    return null;
+                    return false;
                 }
                 $hdr .= $read;
             } while (strlen($hdr) < 4);
@@ -382,7 +327,7 @@ class ForkWorker
             do {
                 $read = socket_read($socket, $len - strlen($buffer));
                 if ($read === false || $read == '') {
-                    return null;
+                    return false;
                 }
                 $buffer .= $read;
             } while (strlen($buffer) < $len);

@@ -172,7 +172,7 @@ class ForkPool implements ManagerInterface
 
 		while ($this->running) {
 		    // Check if the pool is at capacity.
-			if (($this->size * 1) > $count) {
+			if (($this->size * 5) > $count) {
                 // If the size of the pool is less than the stacked size...
 				$stackable = $this->adaptor->listen(5);
 
@@ -183,22 +183,22 @@ class ForkPool implements ManagerInterface
 					try {
 						$this->submit($stackable);
 					} catch (RuntimeException $e) {
-						$this->log->error($e->getMessage(), $e->getTrace());
+						$this->log->critical($e->getMessage(), $e->getTrace());
 					}
 				} elseif (count($this->workers) > 0) {
 					// If there is no more work, clean-up workers.
-					$this->log->debug("Checking " . count($this->workers) . " worker(s) for idle.");
+					$this->log->debug("Checking " . count($this->workers) . " worker(s) for idle");
 
 					$workers = array();
 					foreach ($this->workers as $i => $worker) {
 						$stacked = $worker->getStacked();
 						if ($stacked < 1) {
 							if (!$worker->isShutdown()) {
-								$this->log->info("Shutting down worker {$i} due to idle.");
+								$this->log->info("Shutting down worker {$i} due to idle");
 								$worker->shutdown();
 								$workers[] = $worker;
 							} else if ($worker->isJoined()) {
-								$this->log->info("Cleaning up worker {$i}.");
+								$this->log->info("Cleaning up worker {$i}");
 							}
 						} else {
 							$workers[] = $worker;
@@ -207,7 +207,7 @@ class ForkPool implements ManagerInterface
 					$this->workers = $workers;
 				}
 			} else {
-				$this->log->debug("Sleeping...");
+				$this->log->debug("Pool sleeping");
 				sleep(1);
 			}
 
