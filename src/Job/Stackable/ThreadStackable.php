@@ -18,14 +18,13 @@
  */
 namespace Legume\Job\Stackable;
 
-use Collectable;
 use Exception;
 use Legume\Job\StackableInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Threaded;
 
-class ThreadStackable extends Threaded implements StackableInterface, Collectable
+class ThreadStackable extends Threaded implements StackableInterface
 {
     /** @var callable $callable */
     protected $callable;
@@ -33,11 +32,11 @@ class ThreadStackable extends Threaded implements StackableInterface, Collectabl
     /** @var int $id */
     protected $id;
 
-    /** @var LoggerInterface $log */
-    protected $log;
+    /** @var LoggerInterface $logger */
+    protected $logger;
 
-    /** @var string $workload */
-    protected $workload;
+    /** @var string $payload */
+    protected $payload;
 
     /** @var bool $complete */
     protected $complete;
@@ -48,14 +47,14 @@ class ThreadStackable extends Threaded implements StackableInterface, Collectabl
     /**
      * @param $callable $callable
 	 * @param int $id
-	 * @param string $workload
+	 * @param string $payload
      */
-    public function __construct(callable $callable, $id, $workload)
+    public function __construct(callable $callable, $id, $payload)
     {
         $this->callable = $callable;
         $this->id = $id;
-		$this->log = new NullLogger();
-        $this->workload = $workload;
+		$this->logger = new NullLogger();
+        $this->payload = $payload;
 
         $this->complete = false;
     }
@@ -64,9 +63,9 @@ class ThreadStackable extends Threaded implements StackableInterface, Collectabl
     {
         try {
             // The dependency injector currently owns the callback, synchronize?
-            call_user_func($this->callable, $this->id, $this->workload);
+            call_user_func($this->callable, $this->id, $this->payload);
         } catch (Exception $e) {
-            $this->log->error($e->getMessage(), $e->getTrace());
+            $this->logger->error($e->getMessage(), $e->getTrace());
             $this->terminated = true;
         }
 
@@ -85,9 +84,9 @@ class ThreadStackable extends Threaded implements StackableInterface, Collectabl
     /**
      * @return string
      */
-    public function getData()
+    public function getPayload()
     {
-        return $this->workload;
+        return $this->payload;
     }
 
     /**
@@ -105,16 +104,6 @@ class ThreadStackable extends Threaded implements StackableInterface, Collectabl
 		return $this->terminated;
 	}
 
-	public function setGarbage()
-	{
-		return ;
-	}
-
-	public function isGarbage() : bool
-	{
-		return $this->isComplete();
-	}
-
 	/**
      * Sets a logger instance on the object.
      *
@@ -122,6 +111,6 @@ class ThreadStackable extends Threaded implements StackableInterface, Collectabl
      */
     public function setLogger(LoggerInterface $logger)
     {
-        $this->log = $logger;
+        $this->logger = $logger;
     }
 }

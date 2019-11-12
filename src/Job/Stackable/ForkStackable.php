@@ -31,11 +31,11 @@ class ForkStackable implements StackableInterface
     /** @var int $id */
     protected $id;
 
-    /** @var LoggerInterface $log */
-    protected $log;
+    /** @var LoggerInterface $logger */
+    protected $logger;
 
-    /** @var string $workload */
-    protected $workload;
+    /** @var string $payload */
+    protected $payload;
 
     /** @var bool $complete */
     protected $complete;
@@ -46,14 +46,14 @@ class ForkStackable implements StackableInterface
     /**
      * @param $callable $callable
 	 * @param int $id
-	 * @param string $workload
+	 * @param string $payload
      */
-    public function __construct(callable $callable, $id, $workload)
+    public function __construct(callable $callable, $id, $payload)
     {
         $this->callable = $callable;
         $this->id = $id;
-		$this->log = new NullLogger();
-        $this->workload = $workload;
+		$this->logger = new NullLogger();
+        $this->payload = $payload;
 
         $this->complete = false;
         $this->terminated = false;
@@ -63,9 +63,9 @@ class ForkStackable implements StackableInterface
     {
         try {
             // The dependency injector currently owns the callback, synchronize?
-            call_user_func($this->callable, $this->id, $this->workload);
+            call_user_func($this->callable, $this->id, $this->payload);
         } catch (Exception $e) {
-            $this->log->error($e->getMessage(), $e->getTrace());
+            $this->logger->error($e->getMessage(), $e->getTrace());
             $this->terminated = true;
         }
 
@@ -83,9 +83,9 @@ class ForkStackable implements StackableInterface
     /**
      * @return string
      */
-    public function getData()
+    public function getPayload()
     {
-        return $this->workload;
+        return $this->payload;
     }
 
     /**
@@ -103,6 +103,11 @@ class ForkStackable implements StackableInterface
 		return $this->terminated;
 	}
 
+	public function isCanceled()
+    {
+
+    }
+
 	/**
      * Sets a logger instance on the object.
      *
@@ -110,6 +115,6 @@ class ForkStackable implements StackableInterface
      */
     public function setLogger(LoggerInterface $logger)
     {
-        $this->log = $logger;
+        $this->logger = $logger;
     }
 }

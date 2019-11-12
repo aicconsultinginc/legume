@@ -40,8 +40,8 @@ class Daemon implements LoggerAwareInterface
 	/** @var DI $container */
 	protected $container;
 
-	/** @var Logger $log */
-	protected $log;
+	/** @var Logger $logger */
+	protected $logger;
 
 	/** @var GetOpt $opts */
 	private $opts;
@@ -54,7 +54,7 @@ class Daemon implements LoggerAwareInterface
 		$this->container = new Container();
 		$this->loadDependencies($this->container);
 
-		$this->log = new Logger(basename($_SERVER["SCRIPT_FILENAME"], ".php"));
+		$this->logger = new Logger(basename($_SERVER["SCRIPT_FILENAME"], ".php"));
 		$this->opts = $this->createOpts();
 		$this->pool = null;
 	}
@@ -149,7 +149,7 @@ class Daemon implements LoggerAwareInterface
 
 		$container[PheanstalkAdapter::class] = function (DI $container) {
 			$adaptor = new PheanstalkAdapter($container[Pheanstalk::class]);
-			$adaptor->setLogger($this->log);
+			$adaptor->setLogger($this->logger);
 
 			$jobs = array("Example" => Job\Handler\Example::class);
 			$jobFile = $this->opts->getOption("jobs");
@@ -174,7 +174,7 @@ class Daemon implements LoggerAwareInterface
 			$size = $this->opts->getOption("size");
 
 			$pool = new ThreadPool($adapter);
-			$pool->setLogger($this->log);
+			$pool->setLogger($this->logger);
 			$pool->resize($size);
 
 			return $pool;
@@ -188,7 +188,7 @@ class Daemon implements LoggerAwareInterface
             $size = $this->opts->getOption("size");
 
             $pool = new ForkPool($adapter);
-            $pool->setLogger($this->log);
+            $pool->setLogger($this->logger);
             $pool->resize($size);
 
             return $pool;
@@ -261,7 +261,7 @@ class Daemon implements LoggerAwareInterface
 		$niceness = $this->opts->getOption("nice");
 		if ($niceness !== null) {
 			if (!pcntl_setpriority($niceness, getmypid())) {
-				$this->log->alert("Failed to set processor priority.");
+				$this->logger->alert("Failed to set processor priority.");
 			}
 		}
 
@@ -270,9 +270,9 @@ class Daemon implements LoggerAwareInterface
 			/** @var array $groupInfo */
 			$groupInfo = posix_getgrnam($group);
 			if (!isset($groupInfo["gid"])) {
-				$this->log->alert("Invalid process group name.");
+				$this->logger->alert("Invalid process group name.");
 			} else if (!posix_setgid($groupInfo["gid"])) {
-				$this->log->alert("Failed to change processor group.");
+				$this->logger->alert("Failed to change processor group.");
 			}
 		}
 
@@ -281,9 +281,9 @@ class Daemon implements LoggerAwareInterface
 			/** @var array $userInfo */
 			$userInfo = posix_getpwnam($user);
 			if (!isset($userInfo["uid"])) {
-				$this->log->alert("Invalid process user name.");
+				$this->logger->alert("Invalid process user name.");
 			} else if (!posix_setuid($userInfo["uid"])) {
-				$this->log->alert("Failed to change pool user.");
+				$this->logger->alert("Failed to change pool user.");
 			}
 		}
 	}
@@ -321,9 +321,9 @@ class Daemon implements LoggerAwareInterface
 					$childPid = posix_setsid();
 					$this->suExec();
 
-					$this->log->notice("Starting daemon process: {$childPid}.");
+					$this->logger->notice("Starting daemon process: {$childPid}.");
 					$this->pool->run();
-					$this->log->notice("Daemon process {$childPid} complete.");
+					$this->logger->notice("Daemon process {$childPid} complete.");
 					exit(0);
 
 				case -1: // Error
@@ -331,7 +331,7 @@ class Daemon implements LoggerAwareInterface
 					throw new Exception("Function pcntl_fork() failed: {$msg}");
 
 				default: // Parent
-					$this->log->debug("Forked worker process: {$pid}");
+					$this->logger->debug("Forked worker process: {$pid}");
 					if (!$this->writePid($pid)) {
 						posix_kill($pid, SIGTERM);
 						throw new Exception("Failed to create pid file for the daemon process!");
@@ -363,9 +363,9 @@ class Daemon implements LoggerAwareInterface
 
 			$this->suExec();
 
-			$this->log->notice("Starting process: {$pid}.");
+			$this->logger->notice("Starting process: {$pid}.");
 			$this->pool->run();
-			$this->log->notice("Process {$pid} complete.");
+			$this->logger->notice("Process {$pid} complete.");
 
 			$this->removePid();
 			exit(0);
@@ -383,7 +383,7 @@ class Daemon implements LoggerAwareInterface
 			throw new Exception("Missing or invalid pid file provided");
 		}
 
-        $this->log->notice("Sending shutdown signal to daemon: {$pid}\n");
+        $this->logger->notice("Sending shutdown signal to daemon: {$pid}\n");
         posix_kill($pid, SIGTERM);
         $status = posix_get_last_error();
         if ($status == 0) {
@@ -403,12 +403,12 @@ class Daemon implements LoggerAwareInterface
 	 */
     public function signal($number, $info = null)
     {
-        $this->log->info("Process received signal: {$number}");
+        $this->logger->info("Process received signal: {$number}");
 
         switch ($number) {
             case SIGTERM:
 			case SIGINT:
-				$this->pool->shutdown();
+				$this->stop();
 				break;
 
             case SIGHUP:
@@ -447,9 +447,9 @@ class Daemon implements LoggerAwareInterface
 
 				$level = $levelMap[$verbose];
 				//$this->log->pushHandler(new SyslogHandler($this->log->getName(), LOG_DAEMON, $level));
-                $this->log->pushHandler(new ErrorLogHandler(ErrorLogHandler::SAPI, $level));
+                $this->logger->pushHandler(new ErrorLogHandler(ErrorLogHandler::SAPI, $level));
 			} else {
-				$this->log->pushHandler(new NullHandler(Logger::DEBUG));
+				$this->logger->pushHandler(new NullHandler(Logger::DEBUG));
 			}
 
 			// show help and quit
@@ -463,7 +463,7 @@ class Daemon implements LoggerAwareInterface
 			}
 		} catch (Exception $e) {
 			file_put_contents("php://stderr", PHP_EOL . $e->getMessage() . PHP_EOL . $this->opts->getHelpText() . PHP_EOL);
-			$this->log->critical($e->getMessage());
+			$this->logger->critical($e->getMessage());
 			$status = 127;
 		}
 
@@ -477,6 +477,6 @@ class Daemon implements LoggerAwareInterface
 	 */
 	public function setLogger(LoggerInterface $logger)
 	{
-		$this->log = $logger;
+		$this->logger = $logger;
 	}
 }

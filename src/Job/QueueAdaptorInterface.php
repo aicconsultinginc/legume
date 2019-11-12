@@ -49,11 +49,6 @@ interface QueueAdaptorInterface extends LoggerAwareInterface
 	/**
 	 * @param StackableInterface $work
 	 */
-	public function delete(StackableInterface $work);
-
-	/**
-	 * @param StackableInterface $work
-	 */
     public function retry(StackableInterface $work);
 
     /**

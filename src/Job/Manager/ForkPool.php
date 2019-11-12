@@ -32,8 +32,8 @@ class ForkPool implements ManagerInterface
 	/** @var QueueAdaptorInterface $adaptor */
 	protected $adaptor;
 
-	/** @var LoggerInterface $log */
-	protected $log;
+	/** @var LoggerInterface $logger */
+	protected $logger;
 
 	/** @var boolean $running */
 	protected $running;
@@ -56,7 +56,7 @@ class ForkPool implements ManagerInterface
 	public function __construct(QueueAdaptorInterface $adaptor)
 	{
 		$this->adaptor = $adaptor;
-		$this->log = new NullLogger();
+		$this->logger = new NullLogger();
 		$this->running = false;
 
 		$this->workers = array();
@@ -96,7 +96,7 @@ class ForkPool implements ManagerInterface
 
 		if (!isset($this->workers[$next])) {
 			$this->workers[$next] = new ForkWorker();
-			$this->workers[$next]->setLogger($this->log);
+			$this->workers[$next]->setLogger($this->logger);
 			$this->workers[$next]->start();
 		}
 
@@ -108,7 +108,7 @@ class ForkPool implements ManagerInterface
 	 */
 	public function submitTo($worker, $task)
 	{
-		$this->log->info("Submitting to worker.");
+		$this->logger->info("Submitting to worker.");
 		if (!isset($this->workers[$worker])) {
 			throw new RuntimeException("The selected worker ({$worker}) does not exist!");
 		}
@@ -123,7 +123,7 @@ class ForkPool implements ManagerInterface
 	 */
 	public function collect($collector = null)
 	{
-		if ($collector == null) {
+		if (!isset($collector)) {
 			$collector = array($this, "collector");
 		}
 
@@ -142,23 +142,18 @@ class ForkPool implements ManagerInterface
 	 */
 	public function collector(ForkStackable $work)
 	{
-		$complete = $work->isComplete();
-		if ($complete) {
-			if ($work->isTerminated()) {
-				$this->log->warning("Job {$work->getId()} failed and will be submitted for retry!");
-				$this->adaptor->retry($work);
-
-				// TODO There should be a retry count, then delete
-			} else {
-				$this->log->info("Job {$work->getId()} completed successfully.");
-				$this->adaptor->complete($work);
-			}
-		} else {
-			$this->log->debug("Requesting more time for job {$work->getId()}.");
+        if ($work->isTerminated()) {
+            $this->logger->warning("Job {$work->getId()} failed and will be removed");
+            $this->adaptor->retry($work);
+        } elseif ($work->isComplete()) {
+            $this->logger->info("Job {$work->getId()} completed successfully");
+            $this->adaptor->complete($work);
+        } else {
+			$this->logger->debug("Requesting more time for job {$work->getId()}");
 			$this->adaptor->touch($work);
 		}
 
-		return $complete;
+		return $work->isComplete() || $work->isTerminated();
 	}
 
 	/**
@@ -178,27 +173,27 @@ class ForkPool implements ManagerInterface
 
 				if ($stackable !== null) {
 				    // If we received work from the adaptor
-					$this->log->info("Pool received new job: {$stackable->getId()}");
+					$this->logger->info("Pool received new job: {$stackable->getId()}");
 
 					try {
 						$this->submit($stackable);
 					} catch (RuntimeException $e) {
-						$this->log->critical($e->getMessage(), $e->getTrace());
+						$this->logger->critical($e->getMessage(), $e->getTrace());
 					}
 				} elseif (count($this->workers) > 0) {
 					// If there is no more work, clean-up workers.
-					$this->log->debug("Checking " . count($this->workers) . " worker(s) for idle");
+					$this->logger->debug("Checking " . count($this->workers) . " worker(s) for idle");
 
 					$workers = array();
 					foreach ($this->workers as $i => $worker) {
 						$stacked = $worker->getStacked();
 						if ($stacked < 1) {
 							if (!$worker->isShutdown()) {
-								$this->log->info("Shutting down worker {$i} due to idle");
+								$this->logger->info("Shutting down worker {$i} due to idle");
 								$worker->shutdown();
 								$workers[] = $worker;
 							} else if ($worker->isJoined()) {
-								$this->log->info("Cleaning up worker {$i}");
+								$this->logger->info("Cleaning up worker {$i}");
 							}
 						} else {
 							$workers[] = $worker;
@@ -207,7 +202,7 @@ class ForkPool implements ManagerInterface
 					$this->workers = $workers;
 				}
 			} else {
-				$this->log->debug("Pool sleeping");
+				$this->logger->debug("Pool sleeping");
 				sleep(1);
 			}
 
@@ -220,7 +215,7 @@ class ForkPool implements ManagerInterface
 	 */
 	public function setLogger(LoggerInterface $logger)
 	{
-		$this->log = $logger;
+		$this->logger = $logger;
 	}
 
 	/**

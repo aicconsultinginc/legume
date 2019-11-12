@@ -34,8 +34,8 @@ class ThreadPool extends Pool implements ManagerInterface
     /** @var QueueAdaptorInterface $adaptor */
     protected $adaptor;
 
-    /** @var LoggerInterface $log */
-    protected $log;
+    /** @var LoggerInterface $logger */
+    protected $logger;
 
     /** @var boolean $running */
     protected $running;
@@ -57,7 +57,7 @@ class ThreadPool extends Pool implements ManagerInterface
         parent::__construct(1, ThreadWorker::class, array());
 
         $this->adaptor = $adaptor;
-		$this->log = new NullLogger();
+		$this->logger = new NullLogger();
         $this->running = false;
         $this->work = array();
 
@@ -98,7 +98,7 @@ class ThreadPool extends Pool implements ManagerInterface
 
 		if (!isset($this->workers[$next])) {
 			$this->workers[$next] = new $this->class(...$this->ctor);
-			$this->workers[$next]->setLogger($this->log);
+			$this->workers[$next]->setLogger($this->logger);
 			$this->workers[$next]->start();
 		}
 
@@ -147,14 +147,14 @@ class ThreadPool extends Pool implements ManagerInterface
 		$complete = $work->isComplete();
 		if ($complete) {
 			if ($work->isTerminated()) {
-				$this->log->warning("Job {$work->getId()} failed and will be submitted for retry!");
+				$this->logger->warning("Job {$work->getId()} failed and will be submitted for retry!");
 				$this->adaptor->retry($work);
 			} else {
-				$this->log->info("Job {$work->getId()} completed successfully.");
+				$this->logger->info("Job {$work->getId()} completed successfully.");
 				$this->adaptor->complete($work);
 			}
 		} else {
-			$this->log->debug("Requesting more time for job {$work->getId()}.");
+			$this->logger->debug("Requesting more time for job {$work->getId()}.");
 			$this->adaptor->touch($work);
 		}
 
@@ -175,27 +175,27 @@ class ThreadPool extends Pool implements ManagerInterface
 				$stackable = $this->adaptor->listen(5);
 
 				if ($stackable !== null) {
-					$this->log->info("Pool received new job: {$stackable->getId()}");
+					$this->logger->info("Pool received new job: {$stackable->getId()}");
 
 					try {
 						$this->submit($stackable);
 					} catch (RuntimeException $e) {
-						$this->log->error($e->getMessage(), $e->getTrace());
+						$this->logger->error($e->getMessage(), $e->getTrace());
 					}
 				} elseif (count($this->workers) > 0) {
 					// If there is no more work, clean-up works.
-					$this->log->debug("Checking " . count($this->workers) . " worker(s) for idle.");
+					$this->logger->debug("Checking " . count($this->workers) . " worker(s) for idle.");
 
 					$workers = array();
 					foreach ($this->workers as $i => $worker) {
 						$stacked = $worker->getStacked();
 						if ($stacked < 1) {
 							if (! $worker->isShutdown()) {
-								$this->log->info("Shutting down worker {$i} due to idle.");
+								$this->logger->info("Shutting down worker {$i} due to idle.");
 								$worker->shutdown();
 								$workers[] = $worker;
 							} else if ($worker->isJoined()) {
-								$this->log->info("Cleaning up worker {$i}.");
+								$this->logger->info("Cleaning up worker {$i}.");
 							}
 						} else {
 							$workers[] = $worker;
@@ -204,7 +204,7 @@ class ThreadPool extends Pool implements ManagerInterface
 					$this->workers = $workers;
 				}
 			} else {
-				$this->log->debug("Sleeping...");
+				$this->logger->debug("Sleeping...");
 				sleep(1);
 			}
 
@@ -217,6 +217,6 @@ class ThreadPool extends Pool implements ManagerInterface
      */
     public function setLogger(LoggerInterface $logger)
     {
-        $this->log = $logger;
+        $this->logger = $logger;
     }
 }

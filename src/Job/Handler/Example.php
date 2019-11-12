@@ -21,6 +21,7 @@ namespace Legume\Job\Handler;
 use Legume\Job\HandlerInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use RuntimeException;
 
 class Example implements HandlerInterface
 {
@@ -47,10 +48,8 @@ class Example implements HandlerInterface
 
         $status = sleep($workload);
         if ($status === false) {
-            $status = 1;
+            throw new RuntimeException("Sleep failed");
         }
-
-        return $status;
     }
 
     /**

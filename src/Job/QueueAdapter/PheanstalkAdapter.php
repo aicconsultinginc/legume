@@ -36,8 +36,8 @@ class PheanstalkAdapter implements QueueAdaptorInterface
 	/** @var callable[string] $jobs */
 	protected $jobs;
 
-    /** @var LoggerInterface $log */
-    protected $log;
+    /** @var LoggerInterface $logger */
+    protected $logger;
 
 	/**
 	 * @param Pheanstalk $client
@@ -46,7 +46,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
     {
         $this->client = $client;
         $this->jobs = array();
-		$this->log = new NullLogger();
+		$this->logger = new NullLogger();
     }
 
     /**
@@ -95,7 +95,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
             	if (is_string($callable) && in_array(HandlerInterface::class, class_implements($callable, true))) {
 					/** @var HandlerInterface $callable */
             		$callable = new $callable();
-					$callable->setLogger($this->log);
+					$callable->setLogger($this->logger);
 				}
 
 				if (is_callable($callable)) {
@@ -105,10 +105,10 @@ class PheanstalkAdapter implements QueueAdaptorInterface
 						$job->getData()
 					);
 				} else {
-            		$this->log->warning("Failed to locate callable for job '{$tube}'!");
+            		$this->logger->warning("Failed to locate callable for job '{$tube}'!");
 				}
             } else {
-				$this->log->warning("No job registered for '{$tube}'!");
+				$this->logger->warning("No job registered for '{$tube}'!");
 			}
         }
 
@@ -120,27 +120,17 @@ class PheanstalkAdapter implements QueueAdaptorInterface
      */
     public function complete(StackableInterface $work)
     {
-        $job = new Job($work->getId(), $work->getData());
+        $job = new Job($work->getId(), $work->getPayload());
 
         $this->client->delete($job);
     }
-
-	/**
-	 * @inheritdoc
-	 */
-	public function delete(StackableInterface $work)
-	{
-		$job = new Job($work->getId(), $work->getData());
-
-		$this->client->delete($job);
-	}
 
     /**
      * @inheritdoc
      */
     public function retry(StackableInterface $work)
     {
-        $job = new Job($work->getId(), $work->getData());
+        $job = new Job($work->getId(), $work->getPayload());
 
         $this->client->release($job);
     }
@@ -150,7 +140,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
 	 */
 	public function touch(StackableInterface $work)
 	{
-		$job = new Job($work->getId(), $work->getData());
+		$job = new Job($work->getId(), $work->getPayload());
 
 		$this->client->touch($job);
 	}
@@ -160,6 +150,6 @@ class PheanstalkAdapter implements QueueAdaptorInterface
 	 */
     public function setLogger(LoggerInterface $logger)
     {
-        $this->log = $logger;
+        $this->logger = $logger;
     }
 }

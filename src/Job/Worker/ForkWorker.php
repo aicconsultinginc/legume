@@ -18,6 +18,7 @@
  */
 namespace Legume\Job\Worker;
 
+use Exception;
 use Legume\Job\Stackable\ForkStackable;
 use RuntimeException;
 use Legume\Job\StackableInterface;
@@ -43,14 +44,22 @@ class ForkWorker
 	/** @var bool $running */
     private $running;
 
+    /** @var bool $working */
+    private $working;
+
     /** @var int $size */
     private $size;
 
+    /** @var NullLogger $logger */
+    private $logger;
+
     public function __construct()
     {
-		$this->log = new NullLogger();
+		$this->logger = new NullLogger();
 		$this->stack = array();
         $this->size = 0;
+        $this->running = false;
+        $this->working = false;
 	}
 
 	public function __destruct()
@@ -60,8 +69,12 @@ class ForkWorker
 
 	public function collect($collector = null)
     {
+        if (!isset($collector)) {
+            $collector = array($this, "collector");
+        }
+
 		while (($work = $this->ipcReceive()) !== false) {
-			$this->log->notice("Collector Fetched", array($work));
+			$this->logger->notice("Collector Fetched", array($work));
 
 			if (call_user_func($collector, $work)) {
 				$this->size--;
@@ -71,41 +84,15 @@ class ForkWorker
 		return $this->size;
 	}
 
-
     /**
-     * @inheritdoc
+     * @param ForkStackable $work
+     *
+     * @return bool
      */
-    public function run()
+    public function collector(ForkStackable $work)
     {
-    	$this->running = true;
-
-		while ($this->isRunning()) {
-		    // Transfer pending work
-            while (($work = $this->ipcReceive()) !== false) {
-                $this->log->debug("IPC socket received", array($work));
-                $this->stack[] = $work;
-            }
-
-			$work = array_shift($this->stack);
-			if ($work !== null) {
-				$work->run();
-				$this->log->notice("Worker processing", array($work->getId()));
-
-				// Returned the processed work back to the pool
-				$this->ipcSend($work);
-				$this->log->debug("IPC socket sent", array($work->getId()));
-
-				// Sync the remaining stacked work
-                foreach ($this->stack as $work) {
-                    $this->ipcSend($work);
-                    $this->log->debug("IPC socket touch", array($work->getId()));
-                }
-			} else {
-				$this->log->notice("Worker sleeping");
-				sleep(5);
-			}
-		}
-	}
+        return $work->isComplete() || $work->isTerminated();
+    }
 
     /**
      * Use the inherit none option by default.
@@ -114,14 +101,10 @@ class ForkWorker
      */
     public function start($options = 0)
     {
-        $this->startTime = time();
-
-        $this->log->debug("Create stream.");
-        //$domain = strtoupper(substr(PHP_OS, 0, 3)) == 'WIN' ? AF_INET : AF_UNIX;
         if (socket_create_pair(AF_UNIX, SOCK_STREAM, 0, $sockets) === false) {
             throw new RuntimeException("socket_create_pair failed: " . socket_strerror(socket_last_error()));
         }
-        list($child, $parent) = $sockets; // just to make the code below more readable
+        list($child, $parent) = $sockets; // Split the socket into parent / child
         unset($sockets);
 
 		$pid = pcntl_fork();
@@ -129,7 +112,10 @@ class ForkWorker
 			case 0: // Child
 				socket_close($parent);
 				$this->socket = $child;
-				$this->pid = posix_getpid();
+
+                $this->pid = posix_getpid();
+                $this->startTime = time();
+                $this->running = true;
 
 				$res = pcntl_signal(SIGCHLD, [$this, "signal"]);
 				$res &= pcntl_signal(SIGHUP, [$this, "signal"]);
@@ -147,16 +133,16 @@ class ForkWorker
 				}
 
 
-				$this->log->debug("Starting worker process: {$this->pid}");
+				$this->logger->debug("Starting worker process: {$this->pid}");
                 $this->run();
 
 				socket_close($this->socket);
 
                 if (!pcntl_signal(SIGCHLD, SIG_DFL)) {
-					$this->log->notice("Failed to unregister SIGCHLD handler");
+					$this->logger->notice("Failed to unregister SIGCHLD handler");
 				}
 
-				$this->log->debug("Worker process {$this->pid} complete");
+				$this->logger->debug("Worker process {$this->pid} complete");
 				exit(0);
 
 			case -1: // Error
@@ -168,8 +154,42 @@ class ForkWorker
 				$this->socket = $parent;
 				$this->pid = $pid;
 
-				$this->log->debug("Forked worker process: {$pid}");
+				$this->logger->debug("Forked worker process: {$pid}");
 		}
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function run()
+    {
+        while ($this->isRunning()) {
+            // Transfer pending work
+            while (($work = $this->ipcReceive()) !== false) {
+                $this->logger->debug("IPC socket received", array($work));
+                $this->stack[] = $work;
+            }
+
+            $work = array_shift($this->stack);
+            if ($work !== null) {
+                $this->working = true;
+                $work->run();
+                $this->logger->notice("Worker processing", array($work->getId()));
+
+                // Returned the processed work back to the pool
+                $this->ipcSend($work);
+                $this->logger->debug("IPC socket sent", array($work->getId()));
+
+                // Sync the remaining stacked work
+                foreach ($this->stack as $work) {
+                    $this->ipcSend($work);
+                    $this->logger->debug("IPC socket touch", array($work->getId()));
+                }
+            } else {
+                $this->logger->notice("Worker sleeping");
+                sleep(5);
+            }
+        }
     }
 
     /**
@@ -203,7 +223,6 @@ class ForkWorker
 	 */
 	public function isShutdown()
     {
-        $this->log->notice("isShutdown", [posix_kill($this->pid, 0)]);
         return posix_kill($this->pid, 0);
     }
 
@@ -227,6 +246,8 @@ class ForkWorker
 	public function shutdown()
 	{
 		posix_kill($this->pid, SIGHUP);
+        pcntl_waitpid($this->pid, $status);
+        var_dump($status);
 	}
 
     /**
@@ -238,7 +259,7 @@ class ForkWorker
      */
     public function setLogger(LoggerInterface $logger)
     {
-        $this->log = $logger;
+        $this->logger = $logger;
     }
 
     /**
@@ -251,25 +272,21 @@ class ForkWorker
      */
     public function signal($number, $info = null)
     {
-        $this->log->info("Worker received signal: {$number}");
+        $this->logger->info("Worker received signal: {$number}");
 
         switch ($number) {
-            case SIGTERM:
-                break;
-            /*
             case SIGINT:
-                foreach ($this->workers as $worker) {
-                    while($worker->shift());
-                    $this->collect();
-                }
             case SIGTERM:
-                $this->shutdown();
-                break;
-            */
+                while (($work = array_shift($this->stack)) !== null) {
+                    //$work->cancel();
+
+                    // Returned the canceled work back to the pool
+                    $this->ipcSend($work);
+                    $this->logger->debug("IPC socket sent", array($work->getId()));
+                }
 
             case SIGHUP:
-            	// Stop accepting new jobs.
-				socket_shutdown($this->socket, 0);
+            	$this->running = false;
                 break;
 
             default:
@@ -279,8 +296,12 @@ class ForkWorker
 
     public function isRunning()
     {
-        return $this->running;
+        // TODO What if pid is == 0?
+        return posix_kill($this->pid, SIG_DFL);
     }
+
+
+
 
     // https://github.com/lifo101/php-ipc/blob/master/src/Lifo/IPC/ProcessPool.php
 
@@ -293,7 +314,7 @@ class ForkWorker
         while (true) {
             $sent = socket_write($this->socket, $buffer);
             if ($sent === false) {
-                $this->log->error(socket_strerror(socket_last_error()));
+                $this->logger->error(socket_strerror(socket_last_error()));
                 break;
             }
             if ($sent >= $total) {
@@ -334,7 +355,6 @@ class ForkWorker
 
             $data = unserialize($buffer);
         }
-
 
         return $data;
     }

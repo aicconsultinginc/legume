@@ -31,11 +31,11 @@ class ThreadWorker extends Worker
     protected $startTime;
 
 	/** @var LoggerInterface */
-	private $log;
+	private $logger;
 
 	public function __construct()
     {
-		$this->log = new NullLogger();
+		$this->logger = new NullLogger();
     }
 
 	/**
@@ -53,7 +53,7 @@ class ThreadWorker extends Worker
      */
     public function start($options = PTHREADS_INHERIT_ALL)
     {
-        $this->log->debug("Starting thread worker", array($this->getThreadId(), dechex($options)));
+        $this->logger->debug("Starting thread worker", array($this->getThreadId(), dechex($options)));
         return parent::start($options);
     }
 
@@ -66,6 +66,6 @@ class ThreadWorker extends Worker
      */
     public function setLogger(LoggerInterface $logger)
     {
-        $this->log = $logger;
+        $this->logger = $logger;
     }
 }
