@@ -23,37 +23,37 @@ use Psr\Log\LoggerAwareInterface;
 
 interface ManagerInterface extends LoggerAwareInterface
 {
-	/**
-	 * Manager constructor.
-	 *
-	 * @param QueueAdaptorInterface $adaptor
-	 */
-	public function __construct(QueueAdaptorInterface $adaptor);
+    /**
+     * Manager constructor.
+     *
+     * @param QueueAdaptorInterface $adaptor
+     */
+    public function __construct(QueueAdaptorInterface $adaptor);
 
-	/**
-	 * A Callable collector that returns a boolean on whether the task can be collected
-	 * or not. Only in rare cases should a custom collector need to be used.
-	 *
-	 * @param callable|null $collector
-	 *
-	 * @return int
-	 */
-	public function collect($collector = null);
+    /**
+     * A Callable collector that returns a boolean on whether the task can be collected
+     * or not. Only in rare cases should a custom collector need to be used.
+     *
+     * @param callable|null $collector
+     *
+     * @return int
+     */
+    public function collect($collector = null);
 
-	/**
-	 * Shutdown the Workers in this Pool
-	 */
-	public function shutdown();
+    /**
+     * Shutdown the Workers in this Pool
+     */
+    public function shutdown();
 
-	/**
-	 * Set the maximum number of Workers this Pool can create
-	 *
-	 * @param int $size
-	 */
-	public function resize(int $size);
+    /**
+     * Set the maximum number of Workers this Pool can create
+     *
+     * @param int $size
+     */
+    public function resize(int $size);
 
-	/**
-	 * Run loop for this worker process.
-	 */
-	public function run();
+    /**
+     * Run loop for this worker process.
+     */
+    public function run();
 }

@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 namespace Legume\Job\Handler;
 
 use Legume\Job\HandlerInterface;
@@ -32,15 +33,13 @@ class Example implements HandlerInterface
     protected $log;
 
     public function __construct()
-	{
-		$this->log = new NullLogger();
-	}
+    {
+        $this->log = new NullLogger();
+    }
 
-	/**
+    /**
      * @param string $jobId
      * @param string $workload
-     *
-     * @return int
      */
     public function __invoke($jobId, $workload)
     {

@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 namespace Legume\Job\Stackable;
 
 use Exception;
@@ -41,19 +42,19 @@ class ThreadStackable extends Threaded implements StackableInterface
     /** @var bool $complete */
     protected $complete;
 
-	/** @var bool $terminated */
-	protected $terminated;
+    /** @var bool $terminated */
+    protected $terminated;
 
     /**
      * @param $callable $callable
-	 * @param int $id
-	 * @param string $payload
+     * @param int $id
+     * @param string $payload
      */
     public function __construct(callable $callable, $id, $payload)
     {
         $this->callable = $callable;
         $this->id = $id;
-		$this->logger = new NullLogger();
+        $this->logger = new NullLogger();
         $this->payload = $payload;
 
         $this->complete = false;
@@ -69,7 +70,7 @@ class ThreadStackable extends Threaded implements StackableInterface
             $this->terminated = true;
         }
 
-		//$this->terminated = ($status > 0);
+        //$this->terminated = ($status > 0);
         $this->complete = true;
     }
 
@@ -100,11 +101,11 @@ class ThreadStackable extends Threaded implements StackableInterface
     }
 
     public function isTerminated()
-	{
-		return $this->terminated;
-	}
+    {
+        return $this->terminated;
+    }
 
-	/**
+    /**
      * Sets a logger instance on the object.
      *
      * @param LoggerInterface $logger

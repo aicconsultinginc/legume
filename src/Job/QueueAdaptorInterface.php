@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 namespace Legume\Job;
 
 use Legume\Job\Stackable\ThreadStackable;
@@ -23,16 +24,16 @@ use Psr\Log\LoggerAwareInterface;
 
 interface QueueAdaptorInterface extends LoggerAwareInterface
 {
-	/**
-	 * @param string $name
-	 * @param callable|string $callback
-	 */
-	public function register($name, $callback);
+    /**
+     * @param string $name
+     * @param callable|string $callback
+     */
+    public function register($name, $callback);
 
-	/**
-	 * @param string $name
-	 */
-	public function unregister($name);
+    /**
+     * @param string $name
+     */
+    public function unregister($name);
 
     /**
      * @param int|null $timeout
@@ -46,13 +47,13 @@ interface QueueAdaptorInterface extends LoggerAwareInterface
      */
     public function complete(StackableInterface $work);
 
-	/**
-	 * @param StackableInterface $work
-	 */
+    /**
+     * @param StackableInterface $work
+     */
     public function retry(StackableInterface $work);
 
     /**
-	 * @param StackableInterface $work
-	 */
+     * @param StackableInterface $work
+     */
     public function touch(StackableInterface $work);
 }

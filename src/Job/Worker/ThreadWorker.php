@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 namespace Legume\Job\Worker;
 
 use Psr\Log\LoggerInterface;
@@ -30,15 +31,15 @@ class ThreadWorker extends Worker
     /** @var int $startTime */
     protected $startTime;
 
-	/** @var LoggerInterface */
-	private $logger;
+    /** @var LoggerInterface */
+    private $logger;
 
-	public function __construct()
+    public function __construct()
     {
-		$this->logger = new NullLogger();
+        $this->logger = new NullLogger();
     }
 
-	/**
+    /**
      * @inheritdoc
      */
     public function run()

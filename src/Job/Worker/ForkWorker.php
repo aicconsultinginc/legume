@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 namespace Legume\Job\Worker;
 
 use Exception;
@@ -39,9 +40,9 @@ class ForkWorker
     /** @var ForkStackable[] $stack */
     private $stack;
 
-	private $socket;
+    private $socket;
 
-	/** @var bool $running */
+    /** @var bool $running */
     private $running;
 
     /** @var bool $working */
@@ -55,32 +56,32 @@ class ForkWorker
 
     public function __construct()
     {
-		$this->logger = new NullLogger();
-		$this->stack = array();
+        $this->logger = new NullLogger();
+        $this->stack = array();
         $this->size = 0;
         $this->running = false;
         $this->working = false;
-	}
+    }
 
-	public function __destruct()
-	{
-		socket_close($this->socket);
-	}
+    public function __destruct()
+    {
+        socket_close($this->socket);
+    }
 
-	public function collect($collector = null)
+    public function collect($collector = null)
     {
         if (!isset($collector)) {
             $collector = array($this, "collector");
         }
 
-		while (($work = $this->ipcReceive()) !== false) {
-			if (call_user_func($collector, $work)) {
-				$this->size--;
-			}
-		}
+        while (($work = $this->ipcReceive()) !== false) {
+            if (call_user_func($collector, $work)) {
+                $this->size--;
+            }
+        }
 
-		return $this->size;
-	}
+        return $this->size;
+    }
 
     /**
      * @param ForkStackable $work
@@ -105,53 +106,51 @@ class ForkWorker
         list($child, $parent) = $sockets; // Split the socket into parent / child
         unset($sockets);
 
-		$pid = pcntl_fork();
-		switch ($pid) {
-			case 0: // Child
-				socket_close($parent);
-				$this->socket = $child;
+        $pid = pcntl_fork();
+        switch ($pid) {
+            case 0: // Child
+                socket_close($parent);
+                $this->socket = $child;
 
                 $this->pid = posix_getpid();
                 $this->startTime = time();
                 $this->running = true;
 
-                /*
                 if (!pcntl_signal(SIGCHLD, SIG_DFL)) {
                     $this->logger->notice("Failed to unregister SIGCHLD handler");
                 }
-                */
 
                 $res = pcntl_signal(SIGTERM, [$this, "signal"]);
                 $res &= pcntl_signal(SIGINT, [$this, "signal"]);
                 $res &= pcntl_signal(SIGHUP, [$this, "signal"]);
 
-				if (!$res) {
-					throw new RuntimeException("Function pcntl_signal() failed");
-				}
+                if (!$res) {
+                    throw new RuntimeException("Function pcntl_signal() failed");
+                }
 
 
-				$this->logger->debug("Worker process starting", array($this->pid));
+                $this->logger->debug("Worker process starting", array($this->pid));
                 $this->run();
 
                 if (!pcntl_signal(SIGCHLD, SIG_DFL)) {
-					$this->logger->notice("Failed to unregister SIGCHLD handler");
-				}
+                    $this->logger->notice("Failed to unregister SIGCHLD handler");
+                }
 
-				$this->logger->debug("Worker process complete", array($this->pid));
-				exit(0);
+                $this->logger->debug("Worker process complete", array($this->pid));
+                exit(0);
 
-			case -1: // Error
+            case -1: // Error
                 $code = pcntl_get_last_error();
-				$message = pcntl_strerror($code);
-				throw new Exception($message, $code);
+                $message = pcntl_strerror($code);
+                throw new Exception($message, $code);
 
-			default: // Parent
-				socket_close($child);
-				$this->socket = $parent;
-				$this->pid = $pid;
+            default: // Parent
+                socket_close($child);
+                $this->socket = $parent;
+                $this->pid = $pid;
 
-				$this->logger->debug("Forked worker process", array($this->pid));
-		}
+                $this->logger->debug("Forked worker process", array($this->pid));
+        }
     }
 
     /**
@@ -163,7 +162,12 @@ class ForkWorker
         while ($this->running) {
             // Transfer pending work
             while (($work = $this->ipcReceive()) !== false) {
-                $this->stack[] = $work;
+                if ($work === null) {
+                    $work = array_shift($this->stack);
+                    $this->logger->notice("Worker unstacking", array($work->getId()));
+                } else {
+                    $this->stack[] = $work;
+                }
             }
 
             $work = array_shift($this->stack);
@@ -180,8 +184,8 @@ class ForkWorker
                     $this->ipcSend($work);
                 }
             } else {
-                $this->logger->debug("Worker sleeping");
-                sleep(5);
+                $this->logger->notice("Worker sleeping", array($this->pid));
+                usleep(250);
             }
         }
     }
@@ -192,9 +196,9 @@ class ForkWorker
      */
     public function stack(&$work)
     {
-		$this->ipcSend($work);
+        $this->ipcSend($work);
 
-		return ++$this->size;
+        return ++$this->size;
     }
 
     public function unstack()
@@ -206,44 +210,48 @@ class ForkWorker
 
     public function getStacked()
     {
-		return $this->size;
+        return $this->size;
     }
 
-	/**
-	 * (PECL pthreads &gt;= 2.0.0)<br/>
-	 * Whether the worker has been shutdown or not
-	 * @link https://secure.php.net/manual/en/worker.isshutdown.php
-	 * @return bool <p>Returns whether the worker has been shutdown or not</p>
-	 */
-	public function isShutdown()
+    /**
+     * (PECL pthreads &gt;= 2.0.0)<br/>
+     * Whether the worker has been shutdown or not
+     * @link https://secure.php.net/manual/en/worker.isshutdown.php
+     * @return bool <p>Returns whether the worker has been shutdown or not</p>
+     */
+    public function isShutdown()
     {
         return !posix_kill($this->pid, 0);
     }
 
-	/**
-	 * (PECL pthreads &lt; 3.0.0)<br/>
-	 * Tell if a Worker is executing Stackables
-	 * @link https://secure.php.net/manual/en/worker.isworking.php
-	 * @return bool <p>A boolean indication of state</p>
-	 */
-	public function isWorking()
+    /**
+     * (PECL pthreads &lt; 3.0.0)<br/>
+     * Tell if a Worker is executing Stackables
+     * @link https://secure.php.net/manual/en/worker.isworking.php
+     * @return bool <p>A boolean indication of state</p>
+     */
+    public function isWorking()
     {
 
     }
 
-	/**
-	 * (PECL pthreads &gt;= 2.0.0)<br/>
-	 * Shuts down the Worker after executing all of the stacked tasks
-	 * @link https://secure.php.net/manual/en/worker.shutdown.php
-	 * @return bool <p>Whether the worker was successfully shutdown or not</p>
-	 */
-	public function shutdown()
-	{
-		posix_kill($this->pid, SIGHUP);
+    /**
+     * (PECL pthreads &gt;= 2.0.0)<br/>
+     * Shuts down the Worker after executing all of the stacked tasks
+     * @link https://secure.php.net/manual/en/worker.shutdown.php
+     * @return bool <p>Whether the worker was successfully shutdown or not</p>
+     */
+    public function shutdown()
+    {
+        $success = false;
 
-		pcntl_waitpid($this->pid, $status);
-        return pcntl_wifexited($status);
-	}
+        if (posix_kill($this->pid, SIGHUP)) {
+            pcntl_waitpid($this->pid, $status);
+            $success = pcntl_wifexited($status);
+        }
+
+        return $success;
+    }
 
     /**
      * Sets a logger instance on the object.
@@ -276,7 +284,7 @@ class ForkWorker
                     $this->logger->debug("Worker dropping job", array($work->getId()));
                 }
 
-            	$this->running = false;
+                $this->running = false;
                 break;
 
             default:
@@ -315,7 +323,7 @@ class ForkWorker
 
     private function ipcReceive()
     {
-		$data = false;
+        $data = false;
         $sockets = array($this->socket);
         $ok = @socket_select($sockets, $unused, $unused, 0);
         if ($ok !== false && $ok > 0) {

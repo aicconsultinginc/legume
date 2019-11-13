@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 namespace Legume;
 
 use Pimple;
@@ -26,19 +27,19 @@ use Psr\Container\ContainerInterface;
  */
 class Container extends Pimple\Container implements ContainerInterface
 {
-	/**
-	 * @param string $id
-	 * @return mixed
-	 */
+    /**
+     * @param string $id
+     * @return mixed
+     */
     public function get($id)
     {
         return parent::offsetGet($id);
     }
 
-	/**
-	 * @param string $id
-	 * @return bool
-	 */
+    /**
+     * @param string $id
+     * @return bool
+     */
     public function has($id)
     {
         return parent::offsetExists($id);

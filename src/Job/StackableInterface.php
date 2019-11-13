@@ -24,40 +24,40 @@ use Psr\Log\LoggerAwareInterface;
 
 interface StackableInterface extends LoggerAwareInterface
 {
-	public function __construct(callable $callable, $id, $payload);
+    public function __construct(callable $callable, $id, $payload);
 
-	/**
+    /**
      * Returns the Job ID for this stackable.
      *
-	 * @return string
-	 */
-	public function getId();
+     * @return string
+     */
+    public function getId();
 
-	/**
+    /**
      * Returns the Job Data associated with this stackable.
      *
-	 * @return string
-	 */
-	public function getPayload();
+     * @return string
+     */
+    public function getPayload();
 
     /**
      * Run the Stackable callable with job id and data arguments.
      *
      * @throws Exception
      */
-	public function run();
+    public function run();
 
-	/**
-	 * Determine whether this Stackable has completed.
-	 *
-	 * @return boolean
-	 */
-	public function isComplete();
+    /**
+     * Determine whether this Stackable has completed.
+     *
+     * @return boolean
+     */
+    public function isComplete();
 
     /**
      * Determine whether this Stackable encountered an error.
      *
      * @return boolean
      */
-	public function isTerminated();
+    public function isTerminated();
 }

@@ -29,124 +29,122 @@ use RuntimeException;
 
 class ForkPool implements ManagerInterface
 {
-	/** @var QueueAdaptorInterface $adaptor */
-	protected $adaptor;
+    /** @var QueueAdaptorInterface $adaptor */
+    protected $adaptor;
 
-	/** @var LoggerInterface $logger */
-	protected $logger;
+    /** @var LoggerInterface $logger */
+    protected $logger;
 
-	/** @var boolean $running */
-	protected $running;
+    /** @var boolean $running */
+    protected $running;
 
-	/** @var int $size */
-	protected $size;
+    /** @var int $size */
+    protected $size;
 
-	/** @var int $startTime */
-	protected $startTime;
+    /** @var int $startTime */
+    protected $startTime;
 
-	/** @var ForkWorker[int] */
-	protected $workers;
+    /** @var ForkWorker[int] */
+    protected $workers;
 
-	/** @var int $last */
-	protected $last;
+    /** @var int $last */
+    protected $last;
 
-    protected $buffer = 5;
+    /** @var int $buffer */
+    protected $buffer = 1;
 
     /**
-	 * @param QueueAdaptorInterface $adaptor
-	 */
-	public function __construct(QueueAdaptorInterface $adaptor)
-	{
-		$this->adaptor = $adaptor;
-		$this->logger = new NullLogger();
-		$this->running = false;
+     * @param QueueAdaptorInterface $adaptor
+     */
+    public function __construct(QueueAdaptorInterface $adaptor)
+    {
+        $this->adaptor = $adaptor;
+        $this->logger = new NullLogger();
+        $this->running = false;
 
-		$this->workers = array();
-		$this->last = 0;
-	}
+        $this->workers = array();
+        $this->last = 0;
+    }
 
-	/**
-	 * @inheritdoc
-	 */
-	public function shutdown()
-	{
-        $this->logger->debug("Pool shutting down", array($this->running, $this->workers));
+    /**
+     * @inheritdoc
+     */
+    public function shutdown()
+    {
+        foreach ($this->workers as $worker) {
+            $worker->shutdown();
+            $this->collect();
+        }
 
-        while (($worker = array_shift($this->workers)) !== null) {
-            $this->logger->debug("Worker shutdown starting...");
-		    $worker->shutdown();
-            $worker->collect(array($this, "collector"));
-		}
+        $this->running = false;
+    }
 
-		$this->running = false;
-	}
+    /**
+     * @inheritdoc
+     */
+    public function submit($task)
+    {
+        $next = 0;
+        if ($this->size > 0) {
+            $next = ($this->last + 1) % $this->size;
+            if (isset($this->workers[$next])) {
+                // Find the worker with less work than our round-robin choice.
+                foreach ($this->workers as $i => $worker) {
+                    if ($worker->getStacked() < $this->workers[$next]->getStacked()) {
+                        $next = $i;
+                    }
+                }
+            }
+        }
 
-	/**
-	 * @inheritdoc
-	 */
-	public function submit($task)
-	{
-		$next = 0;
-		if ($this->size > 0) {
-			$next = ($this->last + 1) % $this->size;
-			if (isset($this->workers[$next])) {
-				// Find the worker with less work than our round-robin choice.
-				foreach ($this->workers as $i => $worker) {
-					if ($worker->getStacked() < $this->workers[$next]->getStacked()) {
-						$next = $i;
-					}
-				}
-			}
-		}
+        if (!isset($this->workers[$next])) {
+            $this->workers[$next] = new ForkWorker();
+            $this->workers[$next]->setLogger($this->logger);
+            $this->workers[$next]->start();
+        }
 
-		if (!isset($this->workers[$next])) {
-			$this->workers[$next] = new ForkWorker();
-			$this->workers[$next]->setLogger($this->logger);
-			$this->workers[$next]->start();
-		}
+        return $this->submitTo($next, $task);
+    }
 
-		return $this->submitTo($next, $task);
-	}
+    /**
+     * @inheritdoc
+     */
+    public function submitTo($worker, $task)
+    {
+        $this->logger->info("Submitting to worker.");
+        if (!isset($this->workers[$worker])) {
+            throw new RuntimeException("The selected worker ({$worker}) does not exist!");
+        }
 
-	/**
-	 * @inheritdoc
-	 */
-	public function submitTo($worker, $task)
-	{
-		$this->logger->info("Submitting to worker.");
-		if (!isset($this->workers[$worker])) {
-			throw new RuntimeException("The selected worker ({$worker}) does not exist!");
-		}
+        $this->last = $worker;
 
-		$this->last = $worker;
+        return $this->workers[$worker]->stack($task);
+    }
 
-		return $this->workers[$worker]->stack($task);
-	}
+    /**
+     * @inheritdoc
+     */
+    public function collect($collector = null)
+    {
+        if (!isset($collector)) {
+            $collector = array($this, "collector");
+        }
 
-	/**
-	 * @inheritdoc
-	 */
-	public function collect($collector = null)
-	{
-		if (!isset($collector)) {
-			$collector = array($this, "collector");
-		}
+        $count = 0;
+        foreach ($this->workers as $worker) {
+            $count += $worker->collect($collector);
+        }
 
-		$count = 0;
-		foreach ($this->workers as $worker) {
-			$count += $worker->collect($collector);
-		}
+        return $count;
+    }
 
-		return $count;
-	}
-
-	/**
-	 * @param ForkStackable $work
-	 *
-	 * @return bool
-	 */
-	public function collector(ForkStackable $work)
-	{
+    /**
+     * @param ForkStackable $work
+     *
+     * @return bool
+     */
+    public function collector(ForkStackable $work)
+    {
         if ($work->isTerminated()) {
             $this->logger->warning("Job {$work->getId()} failed and will be removed");
             $this->adaptor->retry($work);
@@ -154,82 +152,81 @@ class ForkPool implements ManagerInterface
             $this->logger->info("Job {$work->getId()} completed successfully");
             $this->adaptor->complete($work);
         } else {
-			$this->logger->debug("Requesting more time for job {$work->getId()}");
-			$this->adaptor->touch($work);
-		}
+            $this->logger->debug("Requesting more time for job {$work->getId()}");
+            $this->adaptor->touch($work);
+        }
 
-		return $work->isComplete() || $work->isTerminated();
-	}
+        return $work->isComplete() || $work->isTerminated();
+    }
 
-	/**
-	 * @inheritdoc
-	 */
-	public function run()
-	{
+    /**
+     * @inheritdoc
+     */
+    public function run()
+    {
         $this->startTime = time();
-		$this->running = true;
-		$count = 0;
+        $this->running = true;
+        $count = 0;
 
-		while ($this->running) {
-		    // Check if the pool is at capacity.
-			if (($this->size * $this->buffer) > $count) {
+        while ($this->running) {
+            // Check if the pool is at capacity.
+            if (($this->size * $this->buffer) > $count) {
                 // If the size of the pool is less than the stacked size...
-				$stackable = $this->adaptor->listen(5);
+                $stackable = $this->adaptor->listen(5);
 
-				if ($stackable !== null) {
-				    // If we received work from the adaptor
-					$this->logger->info("Pool received new job: {$stackable->getId()}");
+                if ($stackable !== null) {
+                    // If we received work from the adaptor
+                    $this->logger->info("Pool received new job: {$stackable->getId()}");
 
-					try {
-						$this->submit($stackable);
-					} catch (RuntimeException $e) {
-						$this->logger->critical($e->getMessage(), $e->getTrace());
-					}
-				} elseif (count($this->workers) > 0) {
-					// If there is no more work, clean-up workers.
-					$this->logger->debug("Checking " . count($this->workers) . " worker(s) for idle");
+                    try {
+                        $this->submit($stackable);
+                    } catch (RuntimeException $e) {
+                        $this->logger->critical($e->getMessage(), $e->getTrace());
+                    }
+                } elseif (count($this->workers) > 0) {
+                    // If there is no more work, clean-up workers.
+                    $this->logger->debug("Checking " . count($this->workers) . " worker(s) for idle");
 
-					$workers = array();
-					foreach ($this->workers as $i => $worker) {
-						$stacked = $worker->getStacked();
-                        $this->logger->info("CHECKING FOR STACKED {$stacked}");
-						if ($stacked < 1) {
-							if (!$worker->isShutdown()) {
-								$this->logger->info("Shutting down worker {$i} due to idle");
-								$worker->shutdown();
-							} else {
-                                $this->logger->info("Worker {$i} is already shutdown?");
+                    $workers = array();
+                    foreach ($this->workers as $i => $worker) {
+                        if ($worker->getStacked() < 1) {
+                            if (!$worker->isShutdown()) {
+                                $this->logger->info("Shutting down worker {$i} due to idle");
+                                if (!$worker->shutdown()) {
+                                    $this->logger->warning("Failed to shut down worker {$i}");
+                                    $workers[] = $worker;
+                                }
                             }
-						} else {
-							$workers[] = $worker;
-						}
-					}
-					$this->workers = $workers;
-				}
-			} else {
-				$this->logger->debug("Pool sleeping");
-				sleep(1);
-			}
+                        } else {
+                            $workers[] = $worker;
+                        }
+                    }
+                    $this->workers = $workers;
+                }
+            } else {
+                $this->logger->debug("Pool sleeping");
+                usleep(250);
+            }
 
-			$count = $this->collect();
-		}
-	}
+            $count = $this->collect();
+        }
+    }
 
-	/**
-	 * @inheritdoc
-	 */
-	public function setLogger(LoggerInterface $logger)
-	{
-		$this->logger = $logger;
-	}
+    /**
+     * @inheritdoc
+     */
+    public function setLogger(LoggerInterface $logger)
+    {
+        $this->logger = $logger;
+    }
 
-	/**
-	 * Set the maximum number of Workers this Pool can create
-	 *
-	 * @param int $size
-	 */
-	public function resize($size)
-	{
-		$this->size = $size;
-	}
+    /**
+     * Set the maximum number of Workers this Pool can create
+     *
+     * @param int $size
+     */
+    public function resize($size)
+    {
+        $this->size = $size;
+    }
 }

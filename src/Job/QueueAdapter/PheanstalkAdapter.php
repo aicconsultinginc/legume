@@ -16,6 +16,7 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 namespace Legume\Job\QueueAdapter;
 
 use Legume\Job\HandlerInterface;
@@ -32,20 +33,20 @@ class PheanstalkAdapter implements QueueAdaptorInterface
     /** @var Pheanstalk $client */
     protected $client;
 
-	/** @var callable[string] $jobs */
-	protected $jobs;
+    /** @var callable[string] $jobs */
+    protected $jobs;
 
     /** @var LoggerInterface $logger */
     protected $logger;
 
-	/**
-	 * @param Pheanstalk $client
-	 */
+    /**
+     * @param Pheanstalk $client
+     */
     public function __construct(Pheanstalk $client)
     {
         $this->client = $client;
         $this->jobs = array();
-		$this->logger = new NullLogger();
+        $this->logger = new NullLogger();
     }
 
     /**
@@ -58,27 +59,27 @@ class PheanstalkAdapter implements QueueAdaptorInterface
         }
     }
 
-	/**
-	 * @inheritdoc
-	 */
+    /**
+     * @inheritdoc
+     */
     public function register($name, $callback)
     {
-		$this->jobs[$name] = $callback;
+        $this->jobs[$name] = $callback;
         $this->client->watch($name);
     }
 
-	/**
-	 * @inheritdoc
-	 */
+    /**
+     * @inheritdoc
+     */
     public function unregister($name)
     {
         $this->client->ignore($name);
         unset($this->jobs[$name]);
     }
 
-	/**
-	 * @inheritdoc
-	 */
+    /**
+     * @inheritdoc
+     */
     public function listen($timeout = null)
     {
         $stackable = null;
@@ -89,26 +90,26 @@ class PheanstalkAdapter implements QueueAdaptorInterface
             $tube = $info["tube"];
 
             if (isset($this->jobs[$tube])) {
-            	$callable = $this->jobs[$tube];
+                $callable = $this->jobs[$tube];
 
-            	if (is_string($callable) && in_array(HandlerInterface::class, class_implements($callable, true))) {
-					/** @var HandlerInterface $callable */
-            		$callable = new $callable();
-					$callable->setLogger($this->logger);
-				}
+                if (is_string($callable) && in_array(HandlerInterface::class, class_implements($callable, true))) {
+                    /** @var HandlerInterface $callable */
+                    $callable = new $callable();
+                    $callable->setLogger($this->logger);
+                }
 
-				if (is_callable($callable)) {
-            		$stackable = new ForkStackable(
-						$callable,
-						$job->getId(),
-						$job->getData()
-					);
-				} else {
-            		$this->logger->warning("Failed to locate callable for job '{$tube}'!");
-				}
+                if (is_callable($callable)) {
+                    $stackable = new ForkStackable(
+                        $callable,
+                        $job->getId(),
+                        $job->getData()
+                    );
+                } else {
+                    $this->logger->warning("Failed to locate callable for job '{$tube}'!");
+                }
             } else {
-				$this->logger->warning("No job registered for '{$tube}'!");
-			}
+                $this->logger->warning("No job registered for '{$tube}'!");
+            }
         }
 
         return $stackable;
@@ -134,19 +135,19 @@ class PheanstalkAdapter implements QueueAdaptorInterface
         $this->client->release($job);
     }
 
-	/**
-	 * @inheritdoc
-	 */
-	public function touch(StackableInterface $work)
-	{
-		$job = new Job($work->getId(), $work->getPayload());
+    /**
+     * @inheritdoc
+     */
+    public function touch(StackableInterface $work)
+    {
+        $job = new Job($work->getId(), $work->getPayload());
 
-		$this->client->touch($job);
-	}
+        $this->client->touch($job);
+    }
 
-	/**
-	 * @inheritdoc
-	 */
+    /**
+     * @inheritdoc
+     */
     public function setLogger(LoggerInterface $logger)
     {
         $this->logger = $logger;
