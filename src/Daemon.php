@@ -295,26 +295,26 @@ class Daemon implements LoggerAwareInterface
     {
 		$this->pool = $this->container->get(ForkPool::class);
 
-		$daemon = $this->opts->getOption("daemon");
+        if (function_exists("pcntl_async_signals")) {
+            pcntl_async_signals(true);
+        } else {
+            declare(ticks = 1);
+        }
+
+        $res = pcntl_signal(SIGTERM, [$this, "signal"]);
+        $res &= pcntl_signal(SIGINT, [$this, "signal"]);
+        $res &= pcntl_signal(SIGHUP, [$this, "signal"]);
+        //$res &= pcntl_signal(SIGCHLD, [$this, "signal"]);
+        //$res &= pcntl_signal(SIGALRM, array($this, "signal"));
+        //$res &= pcntl_signal(SIGTSTP, array($this, "signal"));
+        //$res &= pcntl_signal(SIGCONT, array($this, "signal"));
+
+        if (!$res) {
+            throw new Exception("Function pcntl_signal() failed!");
+        }
+
+        $daemon = $this->opts->getOption("daemon");
 		if ($daemon) {
-            if (function_exists("pcntl_async_signals")) {
-                pcntl_async_signals(true);
-            } else {
-                declare(ticks = 1);
-            }
-
-            $res = pcntl_signal(SIGTERM, [$this, "signal"]);
-            $res &= pcntl_signal(SIGINT, [$this, "signal"]);
-            $res &= pcntl_signal(SIGHUP, [$this, "signal"]);
-            //$res &= pcntl_signal(SIGCHLD, [$this, "signal"]);
-            //$res &= pcntl_signal(SIGALRM, array($this, "signal"));
-            //$res &= pcntl_signal(SIGTSTP, array($this, "signal"));
-            //$res &= pcntl_signal(SIGCONT, array($this, "signal"));
-
-            if (!$res) {
-                throw new Exception("Function pcntl_signal() failed!");
-            }
-
 			$pid = pcntl_fork();
 			switch ($pid) {
 				case 0: // Child
@@ -339,27 +339,7 @@ class Daemon implements LoggerAwareInterface
 			}
 		} else {
 			$pid = posix_getpid();
-			if (!$this->writePid($pid)) {
-				throw new Exception("Failed to create pid file for the daemon process!");
-			}
-
-            if (function_exists("pcntl_async_signals")) {
-                pcntl_async_signals(true);
-            } else {
-                declare(ticks = 1);
-            }
-
-            $res = pcntl_signal(SIGTERM, [$this, "signal"]);
-            $res &= pcntl_signal(SIGINT, [$this, "signal"]);
-            $res &= pcntl_signal(SIGHUP, [$this, "signal"]);
-            //$res &= pcntl_signal(SIGCHLD, [$this, "signal"]);
-            //$res &= pcntl_signal(SIGALRM, array($this, "signal"));
-            //$res &= pcntl_signal(SIGTSTP, array($this, "signal"));
-            //$res &= pcntl_signal(SIGCONT, array($this, "signal"));
-
-            if (!$res) {
-                throw new Exception("Function pcntl_signal() failed!");
-            }
+            //$this->writePid($pid);
 
 			$this->suExec();
 
@@ -367,7 +347,7 @@ class Daemon implements LoggerAwareInterface
 			$this->pool->run();
 			$this->logger->notice("Process {$pid} complete.");
 
-			$this->removePid();
+			//$this->removePid();
 			exit(0);
 		}
     }
@@ -408,8 +388,7 @@ class Daemon implements LoggerAwareInterface
         switch ($number) {
             case SIGTERM:
 			case SIGINT:
-				$this->stop();
-				break;
+				//$this->stop();
 
             case SIGHUP:
                 $this->pool->shutdown();

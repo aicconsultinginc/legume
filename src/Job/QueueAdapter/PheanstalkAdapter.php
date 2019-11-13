@@ -21,7 +21,6 @@ namespace Legume\Job\QueueAdapter;
 use Legume\Job\HandlerInterface;
 use Legume\Job\QueueAdaptorInterface;
 use Legume\Job\Stackable\ForkStackable;
-use Legume\Job\Stackable\ThreadStackable;
 use Legume\Job\StackableInterface;
 use Pheanstalk\Job;
 use Pheanstalk\Pheanstalk;

@@ -50,7 +50,9 @@ class ForkPool implements ManagerInterface
 	/** @var int $last */
 	protected $last;
 
-	/**
+    protected $buffer = 5;
+
+    /**
 	 * @param QueueAdaptorInterface $adaptor
 	 */
 	public function __construct(QueueAdaptorInterface $adaptor)
@@ -68,9 +70,12 @@ class ForkPool implements ManagerInterface
 	 */
 	public function shutdown()
 	{
-		foreach ($this->workers as $worker) {
-			$worker->shutdown();
-			$this->collect();
+        $this->logger->debug("Pool shutting down", array($this->running, $this->workers));
+
+        while (($worker = array_shift($this->workers)) !== null) {
+            $this->logger->debug("Worker shutdown starting...");
+		    $worker->shutdown();
+            $worker->collect(array($this, "collector"));
 		}
 
 		$this->running = false;
@@ -167,7 +172,7 @@ class ForkPool implements ManagerInterface
 
 		while ($this->running) {
 		    // Check if the pool is at capacity.
-			if (($this->size * 5) > $count) {
+			if (($this->size * $this->buffer) > $count) {
                 // If the size of the pool is less than the stacked size...
 				$stackable = $this->adaptor->listen(5);
 
@@ -187,14 +192,14 @@ class ForkPool implements ManagerInterface
 					$workers = array();
 					foreach ($this->workers as $i => $worker) {
 						$stacked = $worker->getStacked();
+                        $this->logger->info("CHECKING FOR STACKED {$stacked}");
 						if ($stacked < 1) {
 							if (!$worker->isShutdown()) {
 								$this->logger->info("Shutting down worker {$i} due to idle");
 								$worker->shutdown();
-								$workers[] = $worker;
-							} else if ($worker->isJoined()) {
-								$this->logger->info("Cleaning up worker {$i}");
-							}
+							} else {
+                                $this->logger->info("Worker {$i} is already shutdown?");
+                            }
 						} else {
 							$workers[] = $worker;
 						}

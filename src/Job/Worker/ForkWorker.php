@@ -74,8 +74,6 @@ class ForkWorker
         }
 
 		while (($work = $this->ipcReceive()) !== false) {
-			$this->logger->notice("Collector Fetched", array($work));
-
 			if (call_user_func($collector, $work)) {
 				$this->size--;
 			}
@@ -117,56 +115,54 @@ class ForkWorker
                 $this->startTime = time();
                 $this->running = true;
 
-				$res = pcntl_signal(SIGCHLD, [$this, "signal"]);
-				$res &= pcntl_signal(SIGHUP, [$this, "signal"]);
+                /*
+                if (!pcntl_signal(SIGCHLD, SIG_DFL)) {
+                    $this->logger->notice("Failed to unregister SIGCHLD handler");
+                }
+                */
 
-
-				//$res = pcntl_signal(SIGTERM, [$this, "signal"]);
-				//$res &= pcntl_signal(SIGINT, [$this, "signal"]);
-				//$res &= pcntl_signal(SIGCHLD, [$this, "signal"]);
-				//$res &= pcntl_signal(SIGALRM, array($this, "signal"));
-				//$res &= pcntl_signal(SIGTSTP, array($this, "signal"));
-				//$res &= pcntl_signal(SIGCONT, array($this, "signal"));
+                $res = pcntl_signal(SIGTERM, [$this, "signal"]);
+                $res &= pcntl_signal(SIGINT, [$this, "signal"]);
+                $res &= pcntl_signal(SIGHUP, [$this, "signal"]);
 
 				if (!$res) {
 					throw new RuntimeException("Function pcntl_signal() failed");
 				}
 
 
-				$this->logger->debug("Starting worker process: {$this->pid}");
+				$this->logger->debug("Worker process starting", array($this->pid));
                 $this->run();
-
-				socket_close($this->socket);
 
                 if (!pcntl_signal(SIGCHLD, SIG_DFL)) {
 					$this->logger->notice("Failed to unregister SIGCHLD handler");
 				}
 
-				$this->logger->debug("Worker process {$this->pid} complete");
+				$this->logger->debug("Worker process complete", array($this->pid));
 				exit(0);
 
 			case -1: // Error
-				$msg = pcntl_strerror(pcntl_get_last_error());
-				throw new Exception("Function pcntl_fork() failed: {$msg}");
+                $code = pcntl_get_last_error();
+				$message = pcntl_strerror($code);
+				throw new Exception($message, $code);
 
 			default: // Parent
 				socket_close($child);
 				$this->socket = $parent;
 				$this->pid = $pid;
 
-				$this->logger->debug("Forked worker process: {$pid}");
+				$this->logger->debug("Forked worker process", array($this->pid));
 		}
     }
 
     /**
      * @inheritdoc
+     * @throws Exception
      */
     public function run()
     {
-        while ($this->isRunning()) {
+        while ($this->running) {
             // Transfer pending work
             while (($work = $this->ipcReceive()) !== false) {
-                $this->logger->debug("IPC socket received", array($work));
                 $this->stack[] = $work;
             }
 
@@ -174,19 +170,17 @@ class ForkWorker
             if ($work !== null) {
                 $this->working = true;
                 $work->run();
-                $this->logger->notice("Worker processing", array($work->getId()));
+                $this->working = false;
 
                 // Returned the processed work back to the pool
                 $this->ipcSend($work);
-                $this->logger->debug("IPC socket sent", array($work->getId()));
 
                 // Sync the remaining stacked work
                 foreach ($this->stack as $work) {
                     $this->ipcSend($work);
-                    $this->logger->debug("IPC socket touch", array($work->getId()));
                 }
             } else {
-                $this->logger->notice("Worker sleeping");
+                $this->logger->debug("Worker sleeping");
                 sleep(5);
             }
         }
@@ -223,7 +217,7 @@ class ForkWorker
 	 */
 	public function isShutdown()
     {
-        return posix_kill($this->pid, 0);
+        return !posix_kill($this->pid, 0);
     }
 
 	/**
@@ -246,8 +240,9 @@ class ForkWorker
 	public function shutdown()
 	{
 		posix_kill($this->pid, SIGHUP);
-        pcntl_waitpid($this->pid, $status);
-        var_dump($status);
+
+		pcntl_waitpid($this->pid, $status);
+        return pcntl_wifexited($status);
 	}
 
     /**
@@ -272,20 +267,15 @@ class ForkWorker
      */
     public function signal($number, $info = null)
     {
-        $this->logger->info("Worker received signal: {$number}");
-
+        $this->logger->info("Worker received signal", array($number));
         switch ($number) {
             case SIGINT:
             case SIGTERM:
+            case SIGHUP:
                 while (($work = array_shift($this->stack)) !== null) {
-                    //$work->cancel();
-
-                    // Returned the canceled work back to the pool
-                    $this->ipcSend($work);
-                    $this->logger->debug("IPC socket sent", array($work->getId()));
+                    $this->logger->debug("Worker dropping job", array($work->getId()));
                 }
 
-            case SIGHUP:
             	$this->running = false;
                 break;
 
@@ -297,10 +287,8 @@ class ForkWorker
     public function isRunning()
     {
         // TODO What if pid is == 0?
-        return posix_kill($this->pid, SIG_DFL);
+        return posix_kill($this->pid, 0);
     }
-
-
 
 
     // https://github.com/lifo101/php-ipc/blob/master/src/Lifo/IPC/ProcessPool.php
