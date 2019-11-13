@@ -236,8 +236,6 @@ class Daemon implements LoggerAwareInterface
     }
 
     /**
-     * @param int $pid
-     *
      * @return bool
      * @throws Exception
      */
@@ -311,13 +309,12 @@ class Daemon implements LoggerAwareInterface
         $res = pcntl_signal(SIGTERM, [$this, "signal"]);
         $res &= pcntl_signal(SIGINT, [$this, "signal"]);
         $res &= pcntl_signal(SIGHUP, [$this, "signal"]);
-        //$res &= pcntl_signal(SIGCHLD, [$this, "signal"]);
-        //$res &= pcntl_signal(SIGALRM, array($this, "signal"));
-        //$res &= pcntl_signal(SIGTSTP, array($this, "signal"));
-        //$res &= pcntl_signal(SIGCONT, array($this, "signal"));
-
         if (!$res) {
             throw new Exception("Function pcntl_signal() failed!");
+        }
+
+        if (!pcntl_signal(SIGCHLD, SIG_IGN)) {
+            $this->logger->notice("Failed to ignore SIGCHLD handler");
         }
 
         $daemon = $this->opts->getOption("daemon");
@@ -328,9 +325,9 @@ class Daemon implements LoggerAwareInterface
                     $childPid = posix_setsid();
                     $this->suExec();
 
-                    $this->logger->notice("Starting daemon process: {$childPid}.");
+                    $this->logger->notice("Starting daemon process", array($childPid));
                     $this->pool->run();
-                    $this->logger->notice("Daemon process {$childPid} complete.");
+                    $this->logger->notice("Daemon process complete", array($childPid));
                     exit(0);
 
                 case -1: // Error
@@ -350,9 +347,9 @@ class Daemon implements LoggerAwareInterface
 
             $this->suExec();
 
-            $this->logger->notice("Starting process: {$pid}.");
+            $this->logger->notice("Starting process", array($pid));
             $this->pool->run();
-            $this->logger->notice("Process {$pid} complete.");
+            $this->logger->notice("Process complete", array($pid));
 
             $this->removePid();
             exit(0);
@@ -372,7 +369,7 @@ class Daemon implements LoggerAwareInterface
             throw new Exception("Missing or invalid pid file provided");
         }
 
-        $this->logger->notice("Sending shutdown signal to daemon: {$pid}\n");
+        $this->logger->notice("Sending shutdown signal to daemon", array($pid));
         posix_kill($pid, SIGTERM);
         $status = posix_get_last_error();
         if ($status == 0) {
@@ -392,7 +389,7 @@ class Daemon implements LoggerAwareInterface
      */
     public function signal($number, $info = null)
     {
-        $this->logger->info("Process received signal: {$number}");
+        $this->logger->info("Process received signal", array($number));
 
         switch ($number) {
             case SIGTERM:

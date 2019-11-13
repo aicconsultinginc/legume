@@ -42,8 +42,6 @@ interface StackableInterface extends LoggerAwareInterface
 
     /**
      * Run the Stackable callable with job id and data arguments.
-     *
-     * @throws Exception
      */
     public function run();
 

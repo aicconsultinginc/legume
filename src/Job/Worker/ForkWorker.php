@@ -116,25 +116,21 @@ class ForkWorker
                 $this->startTime = time();
                 $this->running = true;
 
-                if (!pcntl_signal(SIGCHLD, SIG_DFL)) {
-                    $this->logger->notice("Failed to unregister SIGCHLD handler");
+                if (!pcntl_signal(SIGINT, SIG_IGN)) {
+                    $this->logger->notice("Failed to ignore SIGTERM handler");
                 }
 
-                $res = pcntl_signal(SIGTERM, [$this, "signal"]);
-                $res &= pcntl_signal(SIGINT, [$this, "signal"]);
-                $res &= pcntl_signal(SIGHUP, [$this, "signal"]);
+                if (!pcntl_signal(SIGTERM, SIG_IGN)) {
+                    $this->logger->notice("Failed to ignore SIGTERM handler");
+                }
 
-                if (!$res) {
+                if (!pcntl_signal(SIGHUP, [$this, "signal"])) {
                     throw new RuntimeException("Function pcntl_signal() failed");
                 }
 
 
                 $this->logger->debug("Worker process starting", array($this->pid));
                 $this->run();
-
-                if (!pcntl_signal(SIGCHLD, SIG_DFL)) {
-                    $this->logger->notice("Failed to unregister SIGCHLD handler");
-                }
 
                 $this->logger->debug("Worker process complete", array($this->pid));
                 exit(0);
@@ -155,7 +151,6 @@ class ForkWorker
 
     /**
      * @inheritdoc
-     * @throws Exception
      */
     public function run()
     {
@@ -164,7 +159,7 @@ class ForkWorker
             while (($work = $this->ipcReceive()) !== false) {
                 if ($work === null) {
                     $work = array_shift($this->stack);
-                    $this->logger->notice("Worker unstacking", array($work->getId()));
+                    $this->logger->debug("Worker unstacking", array($work->getId()));
                 } else {
                     $this->stack[] = $work;
                 }
@@ -184,7 +179,8 @@ class ForkWorker
                     $this->ipcSend($work);
                 }
             } else {
-                $this->logger->notice("Worker sleeping", array($this->pid));
+                $this->logger->debug("Worker sleeping", array($this->pid));
+                //sleep(5);
                 usleep(250);
             }
         }
@@ -232,7 +228,7 @@ class ForkWorker
      */
     public function isWorking()
     {
-
+        return ($this->size > 0);
     }
 
     /**
@@ -243,14 +239,18 @@ class ForkWorker
      */
     public function shutdown()
     {
-        $success = false;
+        return posix_kill($this->pid, SIGHUP);
+    }
 
-        if (posix_kill($this->pid, SIGHUP)) {
-            pcntl_waitpid($this->pid, $status);
-            $success = pcntl_wifexited($status);
-        }
+    public function isJoined()
+    {
+        return (pcntl_waitpid($this->pid, $status, WNOHANG) > 0);
+    }
 
-        return $success;
+    public function join()
+    {
+        pcntl_waitpid($this->pid, $status);
+        return pcntl_wifexited($status);
     }
 
     /**
@@ -277,8 +277,6 @@ class ForkWorker
     {
         $this->logger->info("Worker received signal", array($number));
         switch ($number) {
-            case SIGINT:
-            case SIGTERM:
             case SIGHUP:
                 while (($work = array_shift($this->stack)) !== null) {
                     $this->logger->debug("Worker dropping job", array($work->getId()));
@@ -307,6 +305,7 @@ class ForkWorker
         $hdr = pack('N', strlen($serialized));    // 4 byte length
         $buffer = $hdr . $serialized;
         $total = strlen($buffer);
+
         while (true) {
             $sent = socket_write($this->socket, $buffer);
             if ($sent === false) {
@@ -328,10 +327,13 @@ class ForkWorker
         $ok = @socket_select($sockets, $unused, $unused, 0);
         if ($ok !== false && $ok > 0) {
             $socket = array_shift($sockets);
+
+            socket_set_nonblock($socket);
+
             // read 4 byte length first
             $hdr = '';
             do {
-                $read = socket_read($socket, 4 - strlen($hdr));
+                $read = @socket_read($socket, 4 - strlen($hdr));
                 if ($read === false || $read === '') {
                     return false;
                 }
@@ -339,15 +341,22 @@ class ForkWorker
             } while (strlen($hdr) < 4);
 
             list($len) = array_values(unpack("N", $hdr));
+
             // read the full buffer
             $buffer = '';
             do {
-                $read = socket_read($socket, $len - strlen($buffer));
+                $read = socket_read($socket, ($len - strlen($buffer)) % 8192);
                 if ($read === false || $read == '') {
                     return false;
                 }
+
+                if ($len > 10000) {
+                    $this->logger->critical("Pid trying to read $len bytes", array($read));
+                }
+
                 $buffer .= $read;
             } while (strlen($buffer) < $len);
+            socket_set_block($socket);
 
             $data = unserialize($buffer);
         }

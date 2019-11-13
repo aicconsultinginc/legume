@@ -71,9 +71,13 @@ class ForkPool implements ManagerInterface
      */
     public function shutdown()
     {
-        foreach ($this->workers as $worker) {
+        foreach ($this->workers as $i => $worker) {
             $worker->shutdown();
             $this->collect();
+        }
+
+        foreach ($this->workers as $i => $worker) {
+            $worker->join();
         }
 
         $this->running = false;
@@ -98,9 +102,11 @@ class ForkPool implements ManagerInterface
         }
 
         if (!isset($this->workers[$next])) {
-            $this->workers[$next] = new ForkWorker();
-            $this->workers[$next]->setLogger($this->logger);
-            $this->workers[$next]->start();
+            $worker = new ForkWorker();
+            $worker->setLogger($this->logger);
+            $worker->start();
+
+            $this->workers[$next] = $worker;
         }
 
         return $this->submitTo($next, $task);
@@ -205,6 +211,7 @@ class ForkPool implements ManagerInterface
                 }
             } else {
                 $this->logger->debug("Pool sleeping");
+                //sleep(5);
                 usleep(250);
             }
 
