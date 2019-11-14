@@ -53,6 +53,9 @@ class ForkPool implements ManagerInterface
     /** @var int $buffer */
     protected $buffer = 5;
 
+    /** @var int $timeout */
+    protected $timeout = 5;
+
     /**
      * @param QueueAdaptorInterface $adaptor
      */
@@ -72,18 +75,7 @@ class ForkPool implements ManagerInterface
     public function shutdown()
     {
         foreach ($this->workers as $i => $worker) {
-            $this->logger->critical("Shutting down {$i}");
             $worker->shutdown();
-
-            $worker->collect(array($this, "collector"));
-            $this->logger->critical("Joining {$i}");
-
-            if (!$worker->isShutdown()) {
-                $this->logger->critical("... worker not shut down {$i}");
-                $worker->shutdown();
-                //
-                //$this->logger->critical("... collect done");
-            }
         }
 
         $this->running = false;
@@ -179,17 +171,19 @@ class ForkPool implements ManagerInterface
     {
         $this->startTime = time();
         $this->running = true;
+
         $count = 0;
+        $collectionTime = microtime(true);
 
         while ($this->running) {
             // Check if the pool is at capacity.
             if (($this->size * $this->buffer) > $count) {
                 // If the size of the pool is less than the stacked size...
-                $stackable = $this->adaptor->listen(5);
+                $stackable = $this->adaptor->listen($this->timeout);
 
                 if ($stackable !== null) {
                     // If we received work from the adaptor
-                    $this->logger->info("Pool received new job: {$stackable->getId()}");
+                    $this->logger->info("Pool received new job", array($stackable->getId()));
 
                     try {
                         $this->submit($stackable);
@@ -198,7 +192,7 @@ class ForkPool implements ManagerInterface
                     }
                 } elseif (count($this->workers) > 0) {
                     // If there is no more work, clean-up workers.
-                    $this->logger->debug("Checking worker(s) for idle", array(count($this->workers)));
+                    $this->logger->debug("Pool checking worker(s) for idle", array(count($this->workers)));
 
                     $workers = array();
                     foreach ($this->workers as $i => $worker) {
@@ -209,7 +203,8 @@ class ForkPool implements ManagerInterface
                                     $this->logger->warning("Pool failed to shut down worker", array($i));
                                     $workers[] = $worker;
                                 } else {
-                                    $this->logger->info("Cleaning up worker", array($i));
+                                    $this->logger->info("Pool cleaning up worker", array($i));
+                                    $worker->collect(array($this, "collector"));
                                 }
                             }
                         } else {
@@ -219,10 +214,24 @@ class ForkPool implements ManagerInterface
                     $this->workers = $workers;
                 }
             } else {
+                // Sleep for 500 ms
                 usleep(500 * 1000);
             }
 
-            $count = $this->collect();
+            if (microtime(true) - $collectionTime >= $this->timeout) {
+                $count = $this->collect();
+                $collectionTime = microtime(true);
+            }
+        }
+
+        // Make sure each remaining child is complete...
+        foreach ($this->workers as $worker) {
+            /** @var ForkWorker $worker */
+            if (!$worker->isJoined()) {
+                $worker->shutdown();
+                $worker->join();
+                $worker->collect(array($this, "collector"));
+            }
         }
     }
 

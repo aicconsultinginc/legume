@@ -173,9 +173,7 @@ class ForkWorker
             $stack = [];
             if (is_readable("/tmp/worker.{$this->pid}")) {
                 $fd = fopen("/tmp/worker.{$this->pid}", "r");
-                $this->logger->critical("Trying to lock", array(__CLASS__, __FUNCTION__, __LINE__));
                 flock($fd, LOCK_SH);
-                $this->logger->critical("lock ok", array(__CLASS__, __FUNCTION__, __LINE__));
 
                 $buffer = "";
                 while (!feof($fd)) {
@@ -190,18 +188,6 @@ class ForkWorker
                 }
             }
 
-
-            /*
-            while (($work = $this->ipcReceive()) !== false) {
-                if ($work === null) {
-                    $work = array_shift($this->stack);
-                    $this->logger->debug("Worker unstacking", array($work->getId()));
-                } else {
-                    $this->stack[] = $work;
-                }
-            }
-            */
-
             do {
                 $work = array_shift($stack);
             } while($work !== null && $work->isComplete());
@@ -212,9 +198,7 @@ class ForkWorker
                 $this->working = false;
 
                 $fd = fopen("/tmp/worker.{$this->pid}", "r+");
-                $this->logger->critical("Trying to lock", array(__CLASS__, __FUNCTION__, __LINE__));
                 flock($fd, LOCK_SH);
-                $this->logger->critical("lock ok", array(__CLASS__, __FUNCTION__, __LINE__));
 
                 $buffer = "";
                 while (!feof($fd)) {
@@ -230,9 +214,7 @@ class ForkWorker
                 }
 
                 fseek($fd, 0);
-                $this->logger->critical("Trying to lock", array(__CLASS__, __FUNCTION__, __LINE__));
                 flock($fd, LOCK_EX);
-                $this->logger->critical("lock ok", array(__CLASS__, __FUNCTION__, __LINE__));
 
                 fwrite($fd, serialize($stack));
                 flock($fd, LOCK_UN);
@@ -272,7 +254,6 @@ class ForkWorker
     public function unstack()
     {
         /*
-        $this->logger->critical(filesize("/tmp/worker.{$this->pid}"), array(__CLASS__, __FUNCTION__, __LINE__));
         $fd = fopen("/tmp/worker.{$this->pid}", "r+");
         flock($fd, LOCK_EX);
 
@@ -287,7 +268,6 @@ class ForkWorker
         fwrite($fd, serialize($buffer));
         flock($fd, LOCK_UN);
         fclose($fd);
-        $this->logger->critical(filesize("/tmp/worker.{$this->pid}"), array(__CLASS__, __FUNCTION__, __LINE__));
 
         return count($buffer);
         */
@@ -377,7 +357,7 @@ class ForkWorker
      */
     public function signal($number, $info = null)
     {
-        $this->logger->debug("Worker received signal", array($number));
+        $this->logger->debug("Worker {$this->pid} received signal", array($number));
         switch ($number) {
             case SIGHUP:
                 $this->running = false;
