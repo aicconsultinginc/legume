@@ -63,24 +63,45 @@ class ForkWorker
         $this->working = false;
     }
 
-    public function __destruct()
-    {
-        socket_close($this->socket);
-    }
-
     public function collect($collector = null)
     {
         if (!isset($collector)) {
             $collector = array($this, "collector");
         }
 
-        while (($work = $this->ipcReceive()) !== false) {
-            if (call_user_func($collector, $work)) {
-                $this->size--;
+        $size = 0;
+        if (is_readable("/tmp/worker.{$this->pid}")) {
+            $fd = fopen("/tmp/worker.{$this->pid}", "r+");
+            flock($fd, LOCK_EX);
+
+            $buffer = "";
+            while (!feof($fd)) {
+                $buffer .= fread($fd, 8192);
             }
+
+            if (!empty($buffer)) {
+                fseek($fd, 0);
+                $stack = unserialize($buffer);
+                foreach ($stack as $i => $task) {
+                    if (call_user_func($collector, $task)) {
+                        unset($stack[$i]);
+                    }
+                }
+                $stack = array_values($stack);
+
+                fwrite($fd, serialize($stack));
+                $size = count($stack);
+            } else {
+                var_dump("No Buffer to collect!");
+            }
+
+            flock($fd, LOCK_UN);
+            fclose($fd);
+        } else {
+            var_dump("Not readable!");
         }
 
-        return $this->size;
+        return $size;
     }
 
     /**
@@ -100,17 +121,20 @@ class ForkWorker
      */
     public function start($options = 0)
     {
+
+        /*
         if (socket_create_pair(AF_UNIX, SOCK_STREAM, 0, $sockets) === false) {
             throw new RuntimeException("socket_create_pair failed: " . socket_strerror(socket_last_error()));
         }
         list($child, $parent) = $sockets; // Split the socket into parent / child
         unset($sockets);
+        */
 
         $pid = pcntl_fork();
         switch ($pid) {
             case 0: // Child
-                socket_close($parent);
-                $this->socket = $child;
+                //socket_close($parent);
+                //$this->socket = $child;
 
                 $this->pid = posix_getpid();
                 $this->startTime = time();
@@ -133,17 +157,24 @@ class ForkWorker
                 $this->run();
 
                 $this->logger->debug("Worker process complete", array($this->pid));
+                unlink("/tmp/worker.{$this->pid}");
                 exit(0);
 
             case -1: // Error
                 $code = pcntl_get_last_error();
                 $message = pcntl_strerror($code);
-                throw new Exception($message, $code);
+                throw new RuntimeException($message, $code);
 
             default: // Parent
-                socket_close($child);
-                $this->socket = $parent;
+                //socket_close($child);
+                //$this->socket = $parent;
                 $this->pid = $pid;
+
+                $fd = fopen("/tmp/worker.{$this->pid}", "w");
+                flock($fd, LOCK_EX);
+                fwrite($fd, serialize($this->stack));
+                flock($fd, LOCK_UN);
+                fclose($fd);
 
                 $this->logger->debug("Forked worker process", array($this->pid));
         }
@@ -155,7 +186,27 @@ class ForkWorker
     public function run()
     {
         while ($this->running) {
-            // Transfer pending work
+            // Sync pending work
+            $stack = [];
+            if (is_readable("/tmp/worker.{$this->pid}")) {
+                $fd = fopen("/tmp/worker.{$this->pid}", "r");
+                flock($fd, LOCK_EX);
+
+                $buffer = "";
+                while (!feof($fd)) {
+                    $buffer .= fread($fd, 8192);
+                }
+
+                flock($fd, LOCK_UN);
+                fclose($fd);
+
+                if (!empty($buffer)) {
+                    $stack = unserialize($buffer);
+                }
+            }
+
+
+            /*
             while (($work = $this->ipcReceive()) !== false) {
                 if ($work === null) {
                     $work = array_shift($this->stack);
@@ -164,24 +215,40 @@ class ForkWorker
                     $this->stack[] = $work;
                 }
             }
+            */
 
-            $work = array_shift($this->stack);
+            do {
+                $work = array_shift($stack);
+            } while($work !== null && $work->isComplete());
+
             if ($work !== null) {
                 $this->working = true;
                 $work->run();
                 $this->working = false;
 
-                // Returned the processed work back to the pool
-                $this->ipcSend($work);
+                $fd = fopen("/tmp/worker.{$this->pid}", "r+");
+                flock($fd, LOCK_EX);
 
-                // Sync the remaining stacked work
-                foreach ($this->stack as $work) {
-                    $this->ipcSend($work);
+                $buffer = "";
+                while (!feof($fd)) {
+                    $buffer .= fread($fd, 8192);
                 }
+
+                $stack = unserialize($buffer);
+                foreach ($stack as $i => $task) {
+                    if ($task->getId() == $work->getId()) {
+                        unset($stack[$i]);
+                        $stack[] = $work;
+                        break;
+                    }
+                }
+
+                fseek($fd, 0);
+                fwrite($fd, serialize($stack));
+                flock($fd, LOCK_UN);
+                fclose($fd);
             } else {
-                $this->logger->debug("Worker sleeping", array($this->pid));
-                //sleep(5);
-                usleep(250);
+                usleep(500 * 1000);
             }
         }
     }
@@ -192,21 +259,64 @@ class ForkWorker
      */
     public function stack(&$work)
     {
-        $this->ipcSend($work);
+        $fd = fopen("/tmp/worker.{$this->pid}", "r+");
+        flock($fd, LOCK_EX);
 
-        return ++$this->size;
+        $buffer = "";
+        while (!feof($fd)) {
+            $buffer .= fread($fd, 8192);
+        }
+        fseek($fd, 0);
+
+        $stack = unserialize($buffer);
+        $stack[] = $work;
+        fwrite($fd, serialize($stack));
+        flock($fd, LOCK_UN);
+        fclose($fd);
+
+        return count($stack);
     }
 
     public function unstack()
     {
-        $this->ipcSend(null);
+        /*
+        $this->logger->critical(filesize("/tmp/worker.{$this->pid}"), array(__CLASS__, __FUNCTION__, __LINE__));
+        $fd = fopen("/tmp/worker.{$this->pid}", "r+");
+        flock($fd, LOCK_EX);
 
-        return $this->size;
+        $buffer = "";
+        while (!feof($fd)) {
+            $buffer .= fread($fd, 8192);
+        }
+        var_dump($buffer);
+        fseek($fd, 0);
+
+        array_shift($buffer);
+        fwrite($fd, serialize($buffer));
+        flock($fd, LOCK_UN);
+        fclose($fd);
+        $this->logger->critical(filesize("/tmp/worker.{$this->pid}"), array(__CLASS__, __FUNCTION__, __LINE__));
+
+        return count($buffer);
+        */
+        return 0;
     }
 
     public function getStacked()
     {
-        return $this->size;
+        $fd = fopen("/tmp/worker.{$this->pid}", "r");
+        flock($fd, LOCK_EX);
+
+        $buffer = "";
+        while (!feof($fd)) {
+            $buffer .= fread($fd, 8192);
+        }
+
+        flock($fd, LOCK_UN);
+        fclose($fd);
+
+        $stack = unserialize($buffer);
+        return count($stack);
     }
 
     /**
@@ -228,7 +338,7 @@ class ForkWorker
      */
     public function isWorking()
     {
-        return ($this->size > 0);
+        return ($this->getStacked() > 0);
     }
 
     /**
@@ -275,7 +385,7 @@ class ForkWorker
      */
     public function signal($number, $info = null)
     {
-        $this->logger->info("Worker received signal", array($number));
+        $this->logger->debug("Worker received signal", array($number));
         switch ($number) {
             case SIGHUP:
                 while (($work = array_shift($this->stack)) !== null) {
@@ -294,73 +404,5 @@ class ForkWorker
     {
         // TODO What if pid is == 0?
         return posix_kill($this->pid, 0);
-    }
-
-
-    // https://github.com/lifo101/php-ipc/blob/master/src/Lifo/IPC/ProcessPool.php
-
-    private function ipcSend($data)
-    {
-        $serialized = serialize($data);
-        $hdr = pack('N', strlen($serialized));    // 4 byte length
-        $buffer = $hdr . $serialized;
-        $total = strlen($buffer);
-
-        while (true) {
-            $sent = socket_write($this->socket, $buffer);
-            if ($sent === false) {
-                $this->logger->error(socket_strerror(socket_last_error()));
-                break;
-            }
-            if ($sent >= $total) {
-                break;
-            }
-            $total -= $sent;
-            $buffer = substr($buffer, $sent);
-        }
-    }
-
-    private function ipcReceive()
-    {
-        $data = false;
-        $sockets = array($this->socket);
-        $ok = @socket_select($sockets, $unused, $unused, 0);
-        if ($ok !== false && $ok > 0) {
-            $socket = array_shift($sockets);
-
-            socket_set_nonblock($socket);
-
-            // read 4 byte length first
-            $hdr = '';
-            do {
-                $read = @socket_read($socket, 4 - strlen($hdr));
-                if ($read === false || $read === '') {
-                    return false;
-                }
-                $hdr .= $read;
-            } while (strlen($hdr) < 4);
-
-            list($len) = array_values(unpack("N", $hdr));
-
-            // read the full buffer
-            $buffer = '';
-            do {
-                $read = socket_read($socket, ($len - strlen($buffer)) % 8192);
-                if ($read === false || $read == '') {
-                    return false;
-                }
-
-                if ($len > 10000) {
-                    $this->logger->critical("Pid trying to read $len bytes", array($read));
-                }
-
-                $buffer .= $read;
-            } while (strlen($buffer) < $len);
-            socket_set_block($socket);
-
-            $data = unserialize($buffer);
-        }
-
-        return $data;
     }
 }

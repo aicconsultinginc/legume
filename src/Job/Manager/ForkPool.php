@@ -51,7 +51,7 @@ class ForkPool implements ManagerInterface
     protected $last;
 
     /** @var int $buffer */
-    protected $buffer = 1;
+    protected $buffer = 5;
 
     /**
      * @param QueueAdaptorInterface $adaptor
@@ -106,6 +106,7 @@ class ForkPool implements ManagerInterface
             $worker->setLogger($this->logger);
             $worker->start();
 
+            // Only add the worker to the pool after start() due to fork.
             $this->workers[$next] = $worker;
         }
 
@@ -117,7 +118,7 @@ class ForkPool implements ManagerInterface
      */
     public function submitTo($worker, $task)
     {
-        $this->logger->info("Submitting to worker.");
+        $this->logger->info("Pool submitting task to worker", array($worker));
         if (!isset($this->workers[$worker])) {
             throw new RuntimeException("The selected worker ({$worker}) does not exist!");
         }
@@ -191,16 +192,18 @@ class ForkPool implements ManagerInterface
                     }
                 } elseif (count($this->workers) > 0) {
                     // If there is no more work, clean-up workers.
-                    $this->logger->debug("Checking " . count($this->workers) . " worker(s) for idle");
+                    $this->logger->debug("Checking worker(s) for idle", array(count($this->workers)));
 
                     $workers = array();
                     foreach ($this->workers as $i => $worker) {
                         if ($worker->getStacked() < 1) {
                             if (!$worker->isShutdown()) {
-                                $this->logger->info("Shutting down worker {$i} due to idle");
+                                $this->logger->info("Pool shutting down idle worker", array($i));
                                 if (!$worker->shutdown()) {
-                                    $this->logger->warning("Failed to shut down worker {$i}");
+                                    $this->logger->warning("Pool failed to shut down worker", array($i));
                                     $workers[] = $worker;
+                                } else {
+                                    $this->logger->info("Cleaning up worker", array($i));
                                 }
                             }
                         } else {
@@ -210,9 +213,7 @@ class ForkPool implements ManagerInterface
                     $this->workers = $workers;
                 }
             } else {
-                $this->logger->debug("Pool sleeping");
-                //sleep(5);
-                usleep(250);
+                usleep(500 * 1000);
             }
 
             $count = $this->collect();

@@ -104,11 +104,6 @@ class ForkStackable implements StackableInterface
         return $this->terminated;
     }
 
-    public function isCanceled()
-    {
-
-    }
-
     /**
      * Sets a logger instance on the object.
      *

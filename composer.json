@@ -20,7 +20,6 @@
     "php": ">=7.2",
     "ext-pcntl": "*",
     "ext-posix": "*",
-    "ext-sockets": "*",
     "monolog/monolog": "^1.22",
     "pda/pheanstalk": "~3.0",
     "pimple/pimple": "^3.0",
