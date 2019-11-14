@@ -72,12 +72,18 @@ class ForkPool implements ManagerInterface
     public function shutdown()
     {
         foreach ($this->workers as $i => $worker) {
+            $this->logger->critical("Shutting down {$i}");
             $worker->shutdown();
-            $this->collect();
-        }
 
-        foreach ($this->workers as $i => $worker) {
-            $worker->join();
+            $worker->collect(array($this, "collector"));
+            $this->logger->critical("Joining {$i}");
+
+            if (!$worker->isShutdown()) {
+                $this->logger->critical("... worker not shut down {$i}");
+                $worker->shutdown();
+                //
+                //$this->logger->critical("... collect done");
+            }
         }
 
         $this->running = false;

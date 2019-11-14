@@ -40,8 +40,6 @@ class ForkWorker
     /** @var ForkStackable[] $stack */
     private $stack;
 
-    private $socket;
-
     /** @var bool $running */
     private $running;
 
@@ -70,35 +68,35 @@ class ForkWorker
         }
 
         $size = 0;
-        if (is_readable("/tmp/worker.{$this->pid}")) {
+        if (file_exists("/tmp/worker.{$this->pid}")) {
             $fd = fopen("/tmp/worker.{$this->pid}", "r+");
-            flock($fd, LOCK_EX);
+            flock($fd, LOCK_SH);
 
             $buffer = "";
             while (!feof($fd)) {
                 $buffer .= fread($fd, 8192);
             }
 
-            if (!empty($buffer)) {
-                fseek($fd, 0);
-                $stack = unserialize($buffer);
-                foreach ($stack as $i => $task) {
-                    if (call_user_func($collector, $task)) {
-                        unset($stack[$i]);
-                    }
-                }
-                $stack = array_values($stack);
+            fseek($fd, 0);
+            flock($fd, LOCK_EX);
 
-                fwrite($fd, serialize($stack));
-                $size = count($stack);
-            } else {
-                var_dump("No Buffer to collect!");
+            $stack = unserialize($buffer);
+            foreach ($stack as $i => $task) {
+                if (call_user_func($collector, $task)) {
+                    unset($stack[$i]);
+                }
             }
+            $stack = array_values($stack);
+
+            fwrite($fd, serialize($stack));
+            $size = count($stack);
 
             flock($fd, LOCK_UN);
             fclose($fd);
-        } else {
-            var_dump("Not readable!");
+
+            if ($this->isShutdown()) {
+                unlink("/tmp/worker.{$this->pid}");
+            }
         }
 
         return $size;
@@ -121,21 +119,9 @@ class ForkWorker
      */
     public function start($options = 0)
     {
-
-        /*
-        if (socket_create_pair(AF_UNIX, SOCK_STREAM, 0, $sockets) === false) {
-            throw new RuntimeException("socket_create_pair failed: " . socket_strerror(socket_last_error()));
-        }
-        list($child, $parent) = $sockets; // Split the socket into parent / child
-        unset($sockets);
-        */
-
         $pid = pcntl_fork();
         switch ($pid) {
             case 0: // Child
-                //socket_close($parent);
-                //$this->socket = $child;
-
                 $this->pid = posix_getpid();
                 $this->startTime = time();
                 $this->running = true;
@@ -155,9 +141,8 @@ class ForkWorker
 
                 $this->logger->debug("Worker process starting", array($this->pid));
                 $this->run();
-
                 $this->logger->debug("Worker process complete", array($this->pid));
-                unlink("/tmp/worker.{$this->pid}");
+
                 exit(0);
 
             case -1: // Error
@@ -166,8 +151,6 @@ class ForkWorker
                 throw new RuntimeException($message, $code);
 
             default: // Parent
-                //socket_close($child);
-                //$this->socket = $parent;
                 $this->pid = $pid;
 
                 $fd = fopen("/tmp/worker.{$this->pid}", "w");
@@ -190,7 +173,9 @@ class ForkWorker
             $stack = [];
             if (is_readable("/tmp/worker.{$this->pid}")) {
                 $fd = fopen("/tmp/worker.{$this->pid}", "r");
-                flock($fd, LOCK_EX);
+                $this->logger->critical("Trying to lock", array(__CLASS__, __FUNCTION__, __LINE__));
+                flock($fd, LOCK_SH);
+                $this->logger->critical("lock ok", array(__CLASS__, __FUNCTION__, __LINE__));
 
                 $buffer = "";
                 while (!feof($fd)) {
@@ -227,7 +212,9 @@ class ForkWorker
                 $this->working = false;
 
                 $fd = fopen("/tmp/worker.{$this->pid}", "r+");
-                flock($fd, LOCK_EX);
+                $this->logger->critical("Trying to lock", array(__CLASS__, __FUNCTION__, __LINE__));
+                flock($fd, LOCK_SH);
+                $this->logger->critical("lock ok", array(__CLASS__, __FUNCTION__, __LINE__));
 
                 $buffer = "";
                 while (!feof($fd)) {
@@ -237,13 +224,16 @@ class ForkWorker
                 $stack = unserialize($buffer);
                 foreach ($stack as $i => $task) {
                     if ($task->getId() == $work->getId()) {
-                        unset($stack[$i]);
-                        $stack[] = $work;
+                        $stack[$i] = $work;
                         break;
                     }
                 }
 
                 fseek($fd, 0);
+                $this->logger->critical("Trying to lock", array(__CLASS__, __FUNCTION__, __LINE__));
+                flock($fd, LOCK_EX);
+                $this->logger->critical("lock ok", array(__CLASS__, __FUNCTION__, __LINE__));
+
                 fwrite($fd, serialize($stack));
                 flock($fd, LOCK_UN);
                 fclose($fd);
@@ -260,13 +250,15 @@ class ForkWorker
     public function stack(&$work)
     {
         $fd = fopen("/tmp/worker.{$this->pid}", "r+");
-        flock($fd, LOCK_EX);
+        flock($fd, LOCK_SH);
 
         $buffer = "";
         while (!feof($fd)) {
             $buffer .= fread($fd, 8192);
         }
+
         fseek($fd, 0);
+        flock($fd, LOCK_EX);
 
         $stack = unserialize($buffer);
         $stack[] = $work;
@@ -305,14 +297,14 @@ class ForkWorker
     public function getStacked()
     {
         $fd = fopen("/tmp/worker.{$this->pid}", "r");
-        flock($fd, LOCK_EX);
+        flock($fd, LOCK_SH);
 
         $buffer = "";
         while (!feof($fd)) {
             $buffer .= fread($fd, 8192);
         }
 
-        flock($fd, LOCK_UN);
+        flock($fd, LOCK_SH);
         fclose($fd);
 
         $stack = unserialize($buffer);
@@ -388,10 +380,6 @@ class ForkWorker
         $this->logger->debug("Worker received signal", array($number));
         switch ($number) {
             case SIGHUP:
-                while (($work = array_shift($this->stack)) !== null) {
-                    $this->logger->debug("Worker dropping job", array($work->getId()));
-                }
-
                 $this->running = false;
                 break;
 
