@@ -26,26 +26,25 @@ use RuntimeException;
 
 class Example implements HandlerInterface
 {
-    // Setup an optional time limit for this job.
-    const TIMEOUT = 120;
+    /** @var LoggerInterface $logger */
+    protected $logger;
 
-    /** @var LoggerInterface $log */
-    protected $log;
-
+    /**
+     * @inheritDoc
+     */
     public function __construct()
     {
-        $this->log = new NullLogger();
+        $this->logger = new NullLogger();
     }
 
     /**
-     * @param string $jobId
-     * @param string $workload
+     * @inheritDoc
      */
-    public function __invoke($jobId, $workload)
+    public function __invoke($jobId, $payload)
     {
-        $this->log->info("{$jobId}: Processing example job for {$workload} seconds...");
+        $this->logger->info("{$jobId}: Processing example job for {$payload} seconds...");
 
-        $status = sleep($workload);
+        $status = sleep($payload);
         if ($status === false) {
             throw new RuntimeException("Sleep failed");
         }
@@ -58,6 +57,6 @@ class Example implements HandlerInterface
      */
     public function setLogger(LoggerInterface $logger)
     {
-        $this->log = $logger;
+        $this->logger = $logger;
     }
 }

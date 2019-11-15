@@ -25,7 +25,7 @@ use Psr\Log\LoggerAwareInterface;
 interface HandlerInterface extends LoggerAwareInterface
 {
     /**
-     * Default constructor.
+     * Default Constructor.
      */
     public function __construct();
 
@@ -33,7 +33,7 @@ interface HandlerInterface extends LoggerAwareInterface
      * Dispatcher callback for this job handler.
      *
      * @param string $jobId
-     * @param string $workload
+     * @param string $payload
      */
-    public function __invoke($jobId, $workload);
+    public function __invoke($jobId, $payload);
 }

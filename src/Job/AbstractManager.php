@@ -17,23 +17,17 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-namespace Legume\Job\Manager;
+namespace Legume\Job;
 
-use Legume\Job\ManagerInterface;
-use Legume\Job\QueueAdaptorInterface;
-use Legume\Job\StackableInterface;
 use Legume\Job\Worker\ForkWorker;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use RuntimeException;
 
-class ForkPool implements ManagerInterface
+abstract class AbstractManager implements ManagerInterface
 {
     /** @var QueueAdaptorInterface $adaptor */
     protected $adaptor;
-
-    /** @var int $buffer */
-    protected $buffer = 5;
 
     /** @var int $last */
     protected $last;
@@ -41,17 +35,8 @@ class ForkPool implements ManagerInterface
     /** @var LoggerInterface $logger */
     protected $logger;
 
-    /** @var boolean $running */
-    protected $running;
-
     /** @var int $size */
     protected $size;
-
-    /** @var int $startTime */
-    protected $startTime;
-
-    /** @var int $timeout */
-    protected $timeout = 5;
 
     /** @var ForkWorker[int] */
     protected $workers;
@@ -67,18 +52,6 @@ class ForkPool implements ManagerInterface
 
         $this->workers = array();
         $this->last = 0;
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function shutdown()
-    {
-        foreach ($this->workers as $i => $worker) {
-            $worker->shutdown();
-        }
-
-        $this->running = false;
     }
 
     /**
@@ -100,6 +73,7 @@ class ForkPool implements ManagerInterface
         }
 
         if (!isset($this->workers[$next])) {
+            // FIXME Replace with $this->createWorker()
             $worker = new ForkWorker();
             $worker->setLogger($this->logger);
             $worker->start();
@@ -167,70 +141,9 @@ class ForkPool implements ManagerInterface
     /**
      * @inheritDoc
      */
-    public function run()
+    public function resize($size)
     {
-        $this->startTime = time();
-        $this->running = true;
-
-        $count = 0;
-        $collectionTime = microtime(true);
-
-        while ($this->running) {
-            // Check if the pool is at capacity.
-            if (($this->size * $this->buffer) > $count) {
-                // If the size of the pool is less than the stacked size...
-                $task = $this->adaptor->listen($this->timeout);
-
-                if ($task !== null) {
-                    // If we received work from the adaptor
-                    $this->logger->info("Pool received new job", array($task->getId()));
-
-                    try {
-                        $this->submit($task);
-                    } catch (RuntimeException $e) {
-                        $this->logger->critical($e->getMessage(), $e->getTrace());
-                    }
-                } elseif (count($this->workers) > 0) {
-                    // If there is no more work, clean-up workers.
-                    $this->logger->debug("Pool checking worker(s) for idle", array(count($this->workers)));
-
-                    $workers = array();
-                    foreach ($this->workers as $i => $worker) {
-                        if ($worker->getStacked() < 1) {
-                            if (!$worker->isShutdown()) {
-                                $this->logger->info("Pool shutting down idle worker", array($i));
-                                if (!$worker->shutdown()) {
-                                    $this->logger->warning("Pool failed to shut down worker", array($i));
-                                } else {
-                                    $this->logger->info("Pool cleaning up worker", array($i));
-                                    $worker->collect(array($this, "collector"));
-                                    unset($this->workers[$i]);
-                                }
-                            }
-                        }
-                    }
-                    $this->workers = $workers;
-                }
-            } else {
-                // Sleep for 500 ms
-                usleep(500 * 1000);
-            }
-
-            if (microtime(true) - $collectionTime >= $this->timeout) {
-                $count = $this->collect();
-                $collectionTime = microtime(true);
-            }
-        }
-
-        // Make sure each remaining child is complete...
-        foreach ($this->workers as $worker) {
-            /** @var ForkWorker $worker */
-            if (!$worker->isJoined()) {
-                $worker->shutdown();
-                $worker->join();
-                $worker->collect(array($this, "collector"));
-            }
-        }
+        $this->size = $size;
     }
 
     /**
@@ -239,13 +152,5 @@ class ForkPool implements ManagerInterface
     public function setLogger(LoggerInterface $logger)
     {
         $this->logger = $logger;
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function resize($size)
-    {
-        $this->size = $size;
     }
 }

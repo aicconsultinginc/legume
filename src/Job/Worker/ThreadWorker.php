@@ -25,22 +25,22 @@ use Worker;
 
 class ThreadWorker extends Worker
 {
-    /** @var int $jobCount */
-    protected $jobCount;
-
     /** @var int $startTime */
     protected $startTime;
 
     /** @var LoggerInterface */
     private $logger;
 
+    /**
+     * @inheritDoc
+     */
     public function __construct()
     {
         $this->logger = new NullLogger();
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function run()
     {
@@ -48,9 +48,9 @@ class ThreadWorker extends Worker
     }
 
     /**
-     * Use the inherit none option by default.
+     * Use the inherit ALL option by default.
      *
-     * @inheritdoc
+     * @inheritDoc
      */
     public function start($options = PTHREADS_INHERIT_ALL)
     {
@@ -59,11 +59,7 @@ class ThreadWorker extends Worker
     }
 
     /**
-     * Sets a logger instance on the object.
-     *
-     * @param LoggerInterface $logger
-     *
-     * @return void
+     * @inheritDoc
      */
     public function setLogger(LoggerInterface $logger)
     {

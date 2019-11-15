@@ -21,8 +21,7 @@ namespace Legume\Job\Manager;
 
 use Legume\Job\ManagerInterface;
 use Legume\Job\QueueAdaptorInterface;
-use Legume\Job\Stackable\ForkStackable;
-use Legume\Job\Stackable\ThreadStackable;
+use Legume\Job\Stackable;
 use Legume\Job\StackableInterface;
 use Legume\Job\Worker\ThreadWorker;
 use Pool;
@@ -36,6 +35,12 @@ class ThreadPool extends Pool implements ManagerInterface
     /** @var QueueAdaptorInterface $adaptor */
     protected $adaptor;
 
+    /** @var int $buffer */
+    protected $buffer = 5;
+
+    /** @var int $last */
+    protected $last;
+
     /** @var LoggerInterface $logger */
     protected $logger;
 
@@ -45,14 +50,14 @@ class ThreadPool extends Pool implements ManagerInterface
     /** @var int $startTime */
     protected $startTime;
 
+    /** @var int $timeout */
+    protected $timeout = 5;
+
     /** @var ThreadWorker[int] */
     protected $workers;
 
-    /** @var int $last */
-    protected $last;
-
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function __construct(QueueAdaptorInterface $adaptor)
     {
@@ -61,14 +66,13 @@ class ThreadPool extends Pool implements ManagerInterface
         $this->adaptor = $adaptor;
         $this->logger = new NullLogger();
         $this->running = false;
-        $this->work = array();
 
         $this->workers = array();
         $this->last = 0;
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function shutdown()
     {
@@ -80,10 +84,12 @@ class ThreadPool extends Pool implements ManagerInterface
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function submit($task)
     {
+        $task = Threaded::extend($task);
+
         $next = 0;
         if ($this->size > 0) {
             $next = ($this->last + 1) % $this->size;
@@ -108,7 +114,7 @@ class ThreadPool extends Pool implements ManagerInterface
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function submitTo($worker, $task)
     {
@@ -122,7 +128,7 @@ class ThreadPool extends Pool implements ManagerInterface
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function collect($collector = null)
     {
@@ -139,11 +145,11 @@ class ThreadPool extends Pool implements ManagerInterface
     }
 
     /**
-     * @param ForkStackable $work
+     * @param StackableInterface $work
      *
      * @return bool
      */
-    public function collector(ForkStackable $work)
+    public function collector(StackableInterface $work)
     {
         if ($work->isTerminated()) {
             $this->logger->warning("Job {$work->getId()} failed and will be removed");
@@ -160,7 +166,7 @@ class ThreadPool extends Pool implements ManagerInterface
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function run()
     {
@@ -213,7 +219,7 @@ class ThreadPool extends Pool implements ManagerInterface
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function setLogger(LoggerInterface $logger)
     {

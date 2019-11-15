@@ -19,7 +19,6 @@
 
 namespace Legume\Job;
 
-use Legume\Job\Stackable\ThreadStackable;
 use Psr\Log\LoggerAwareInterface;
 
 interface QueueAdaptorInterface extends LoggerAwareInterface
@@ -38,7 +37,7 @@ interface QueueAdaptorInterface extends LoggerAwareInterface
     /**
      * @param int|null $timeout
      *
-     * @return ThreadStackable|null
+     * @return StackableInterface|null
      */
     public function listen($timeout = null);
 

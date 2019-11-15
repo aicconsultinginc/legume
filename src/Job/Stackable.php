@@ -17,17 +17,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-namespace Legume\Job\Stackable;
+namespace Legume\Job;
 
 use Exception;
-use Legume\Job\StackableInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
-class ForkStackable implements StackableInterface
+class Stackable implements StackableInterface
 {
     /** @var callable $callable */
     protected $callable;
+
+    /** @var bool $complete */
+    protected $complete;
 
     /** @var int $id */
     protected $id;
@@ -38,28 +40,25 @@ class ForkStackable implements StackableInterface
     /** @var string $payload */
     protected $payload;
 
-    /** @var bool $complete */
-    protected $complete;
-
     /** @var bool $terminated */
     protected $terminated;
 
     /**
-     * @param $callable $callable
-     * @param int $id
-     * @param string $payload
+     * @inheritDoc
      */
     public function __construct(callable $callable, $id, $payload)
     {
         $this->callable = $callable;
+        $this->complete = false;
         $this->id = $id;
         $this->logger = new NullLogger();
         $this->payload = $payload;
-
-        $this->complete = false;
         $this->terminated = false;
     }
 
+    /**
+     * @inheritDoc
+     */
     public function run()
     {
         try {
@@ -74,7 +73,7 @@ class ForkStackable implements StackableInterface
     }
 
     /**
-     * @return string
+     * @inheritDoc
      */
     public function getId()
     {
@@ -82,7 +81,7 @@ class ForkStackable implements StackableInterface
     }
 
     /**
-     * @return string
+     * @inheritDoc
      */
     public function getPayload()
     {
@@ -90,24 +89,23 @@ class ForkStackable implements StackableInterface
     }
 
     /**
-     * Determine whether this Threaded has completed.
-     *
-     * @return boolean
+     * @inheritDoc
      */
     public function isComplete()
     {
         return $this->complete;
     }
 
+    /**
+     * @inheritDoc
+     */
     public function isTerminated()
     {
         return $this->terminated;
     }
 
     /**
-     * Sets a logger instance on the object.
-     *
-     * @param LoggerInterface $logger
+     * @inheritDoc
      */
     public function setLogger(LoggerInterface $logger)
     {

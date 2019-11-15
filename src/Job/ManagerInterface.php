@@ -24,7 +24,7 @@ use Psr\Log\LoggerAwareInterface;
 interface ManagerInterface extends LoggerAwareInterface
 {
     /**
-     * Manager constructor.
+     * Manager Constructor.
      *
      * @param QueueAdaptorInterface $adaptor
      */
@@ -41,12 +41,12 @@ interface ManagerInterface extends LoggerAwareInterface
     public function collect($collector = null);
 
     /**
-     * Shutdown the Workers in this Pool
+     * Shutdown the Workers in this Pool.
      */
     public function shutdown();
 
     /**
-     * Set the maximum number of Workers this Pool can create
+     * Set the maximum number of Workers this Pool can create.
      *
      * @param int $size
      */

@@ -19,11 +19,15 @@
 
 namespace Legume\Job;
 
-use Exception;
 use Psr\Log\LoggerAwareInterface;
 
 interface StackableInterface extends LoggerAwareInterface
 {
+    /**
+     * @param callable $callable
+     * @param string $id
+     * @param string $payload
+     */
     public function __construct(callable $callable, $id, $payload);
 
     /**
@@ -41,12 +45,12 @@ interface StackableInterface extends LoggerAwareInterface
     public function getPayload();
 
     /**
-     * Run the Stackable callable with job id and data arguments.
+     * Run the Stackable callable with job id and payload arguments.
      */
     public function run();
 
     /**
-     * Determine whether this Stackable has completed.
+     * Determine whether this Stackable has completed, regardless of error.
      *
      * @return boolean
      */

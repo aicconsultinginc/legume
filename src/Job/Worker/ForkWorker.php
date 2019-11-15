@@ -20,24 +20,20 @@
 namespace Legume\Job\Worker;
 
 use Exception;
-use Legume\Job\Stackable\ForkStackable;
-use RuntimeException;
 use Legume\Job\StackableInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use RuntimeException;
 
 class ForkWorker
 {
-    /** @var int $jobCount */
-    protected $jobCount;
-
     /** @var int $startTime */
     protected $startTime;
 
     /** @var int $pid */
     private $pid;
 
-    /** @var ForkStackable[] $stack */
+    /** @var StackableInterface[] $stack */
     private $stack;
 
     /** @var bool $running */
@@ -103,19 +99,15 @@ class ForkWorker
     }
 
     /**
-     * @param ForkStackable $work
-     *
-     * @return bool
+     * @inheritDoc
      */
-    public function collector(ForkStackable $work)
+    public function collector(StackableInterface $task)
     {
-        return $work->isComplete() || $work->isTerminated();
+        return $task->isComplete();
     }
 
     /**
-     * Use the inherit none option by default.
-     *
-     * @inheritdoc
+     * @inheritDoc
      */
     public function start($options = 0)
     {
@@ -164,12 +156,12 @@ class ForkWorker
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function run()
     {
         while ($this->running) {
-            // Sync pending work
+            // Sync pending tasks
             $stack = [];
             if (is_readable("/tmp/worker.{$this->pid}")) {
                 $fd = fopen("/tmp/worker.{$this->pid}", "r");
@@ -189,12 +181,12 @@ class ForkWorker
             }
 
             do {
-                $work = array_shift($stack);
-            } while($work !== null && $work->isComplete());
+                $task = array_shift($stack);
+            } while($task !== null && $task->isComplete());
 
-            if ($work !== null) {
+            if ($task !== null) {
                 $this->working = true;
-                $work->run();
+                $task->run();
                 $this->working = false;
 
                 $fd = fopen("/tmp/worker.{$this->pid}", "r+");
@@ -206,9 +198,10 @@ class ForkWorker
                 }
 
                 $stack = unserialize($buffer);
-                foreach ($stack as $i => $task) {
-                    if ($task->getId() == $work->getId()) {
-                        $stack[$i] = $work;
+                foreach ($stack as $i => $work) {
+                    /** @var Stackable $work */
+                    if ($work->getId() == $task->getId()) {
+                        $stack[$i] = $task;
                         break;
                     }
                 }
@@ -226,10 +219,9 @@ class ForkWorker
     }
 
     /**
-     * @param StackableInterface $work
-     * @return int|void
+     * @inheritDoc
      */
-    public function stack(&$work)
+    public function stack(&$task)
     {
         $fd = fopen("/tmp/worker.{$this->pid}", "r+");
         flock($fd, LOCK_SH);
@@ -243,7 +235,7 @@ class ForkWorker
         flock($fd, LOCK_EX);
 
         $stack = unserialize($buffer);
-        $stack[] = $work;
+        $stack[] = $task;
         fwrite($fd, serialize($stack));
         flock($fd, LOCK_UN);
         fclose($fd);
@@ -251,6 +243,9 @@ class ForkWorker
         return count($stack);
     }
 
+    /**
+     * @inheritDoc
+     */
     public function unstack()
     {
         /*
@@ -274,6 +269,9 @@ class ForkWorker
         return 0;
     }
 
+    /**
+     * @inheritDoc
+     */
     public function getStacked()
     {
         $fd = fopen("/tmp/worker.{$this->pid}", "r");
@@ -292,10 +290,7 @@ class ForkWorker
     }
 
     /**
-     * (PECL pthreads &gt;= 2.0.0)<br/>
-     * Whether the worker has been shutdown or not
-     * @link https://secure.php.net/manual/en/worker.isshutdown.php
-     * @return bool <p>Returns whether the worker has been shutdown or not</p>
+     * @inheritDoc
      */
     public function isShutdown()
     {
@@ -303,10 +298,7 @@ class ForkWorker
     }
 
     /**
-     * (PECL pthreads &lt; 3.0.0)<br/>
-     * Tell if a Worker is executing Stackables
-     * @link https://secure.php.net/manual/en/worker.isworking.php
-     * @return bool <p>A boolean indication of state</p>
+     * @inheritDoc
      */
     public function isWorking()
     {
@@ -314,10 +306,7 @@ class ForkWorker
     }
 
     /**
-     * (PECL pthreads &gt;= 2.0.0)<br/>
-     * Shuts down the Worker after executing all of the stacked tasks
-     * @link https://secure.php.net/manual/en/worker.shutdown.php
-     * @return bool <p>Whether the worker was successfully shutdown or not</p>
+     * @inheritDoc
      */
     public function shutdown()
     {
@@ -364,13 +353,17 @@ class ForkWorker
                 break;
 
             default:
-                // handle all other signals
+                // Ignore all other signals
         }
     }
 
     public function isRunning()
     {
-        // TODO What if pid is == 0?
-        return posix_kill($this->pid, 0);
+        $status = false;
+        if (isset($this->pid)) {
+            $status = posix_kill($this->pid, 0);
+        }
+
+        return $status;
     }
 }

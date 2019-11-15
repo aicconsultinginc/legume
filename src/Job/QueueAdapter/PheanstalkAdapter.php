@@ -21,7 +21,7 @@ namespace Legume\Job\QueueAdapter;
 
 use Legume\Job\HandlerInterface;
 use Legume\Job\QueueAdaptorInterface;
-use Legume\Job\Stackable\ForkStackable;
+use Legume\Job\Stackable;
 use Legume\Job\StackableInterface;
 use Pheanstalk\Job;
 use Pheanstalk\Pheanstalk;
@@ -34,7 +34,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
     protected $client;
 
     /** @var callable[string] $jobs */
-    protected $jobs;
+    protected $handlers;
 
     /** @var LoggerInterface $logger */
     protected $logger;
@@ -45,7 +45,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
     public function __construct(Pheanstalk $client)
     {
         $this->client = $client;
-        $this->jobs = array();
+        $this->handlers = array();
         $this->logger = new NullLogger();
     }
 
@@ -60,25 +60,25 @@ class PheanstalkAdapter implements QueueAdaptorInterface
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function register($name, $callback)
     {
-        $this->jobs[$name] = $callback;
+        $this->handlers[$name] = $callback;
         $this->client->watch($name);
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function unregister($name)
     {
         $this->client->ignore($name);
-        unset($this->jobs[$name]);
+        unset($this->handlers[$name]);
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function listen($timeout = null)
     {
@@ -89,8 +89,8 @@ class PheanstalkAdapter implements QueueAdaptorInterface
             $info = $this->client->statsJob($job);
             $tube = $info["tube"];
 
-            if (isset($this->jobs[$tube])) {
-                $callable = $this->jobs[$tube];
+            if (isset($this->handlers[$tube])) {
+                $callable = $this->handlers[$tube];
 
                 if (is_string($callable) && in_array(HandlerInterface::class, class_implements($callable, true))) {
                     /** @var HandlerInterface $callable */
@@ -99,7 +99,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
                 }
 
                 if (is_callable($callable)) {
-                    $stackable = new ForkStackable(
+                    $stackable = new Stackable(
                         $callable,
                         $job->getId(),
                         $job->getData()
@@ -116,7 +116,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function complete(StackableInterface $work)
     {
@@ -126,7 +126,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function retry(StackableInterface $work)
     {
@@ -136,7 +136,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function touch(StackableInterface $work)
     {
@@ -146,7 +146,7 @@ class PheanstalkAdapter implements QueueAdaptorInterface
     }
 
     /**
-     * @inheritdoc
+     * @inheritDoc
      */
     public function setLogger(LoggerInterface $logger)
     {
