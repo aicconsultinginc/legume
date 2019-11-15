@@ -48,6 +48,9 @@ class ForkWorker
     /** @var NullLogger $logger */
     private $logger;
 
+    /** @var string $path */
+    protected $path;
+
     public function __construct()
     {
         $this->logger = new NullLogger();
@@ -64,8 +67,8 @@ class ForkWorker
         }
 
         $size = 0;
-        if (file_exists("/tmp/worker.{$this->pid}")) {
-            $fd = fopen("/tmp/worker.{$this->pid}", "r+");
+        if (file_exists("{$this->path}/worker.{$this->pid}")) {
+            $fd = fopen("{$this->path}/worker.{$this->pid}", "r+");
             flock($fd, LOCK_SH);
 
             $buffer = "";
@@ -90,7 +93,10 @@ class ForkWorker
             fclose($fd);
 
             if ($this->isShutdown()) {
-                unlink("/tmp/worker.{$this->pid}");
+                unlink("{$this->path}/worker.{$this->pid}");
+                if (count(scandir($this->path)) <= 2) {
+                    rmdir($this->path);
+                }
             }
         }
 
@@ -108,8 +114,17 @@ class ForkWorker
     /**
      * @inheritDoc
      */
-    public function start($options = 0)
+    public function start($path = null)
     {
+        if (!is_string($path)) {
+            $path = sys_get_temp_dir() . DIRECTORY_SEPARATOR . "legumed." . posix_getpid();
+        }
+
+        if (!is_dir($path) && !mkdir($path, 0750)) {
+            throw new RuntimeException("Failed to create IPC path: {$path}");
+        }
+        $this->path = realpath($path);
+
         $pid = pcntl_fork();
         switch ($pid) {
             case 0: // Child
@@ -144,11 +159,15 @@ class ForkWorker
             default: // Parent
                 $this->pid = $pid;
 
-                $fd = fopen("/tmp/worker.{$this->pid}", "w");
+                $fd = fopen("{$this->path}/worker.{$this->pid}", "w");
                 flock($fd, LOCK_EX);
                 fwrite($fd, serialize($this->stack));
                 flock($fd, LOCK_UN);
                 fclose($fd);
+
+                if (!chmod("{$this->path}/worker.{$this->pid}", 0640)) {
+                    $this->logger->warning("Failed to chmod worker IPC file", array("{$this->path}/worker.{$this->pid}"));
+                }
 
                 $this->logger->debug("Forked worker process", array($this->pid));
         }
@@ -162,8 +181,8 @@ class ForkWorker
         while ($this->running) {
             // Sync pending tasks
             $stack = [];
-            if (is_readable("/tmp/worker.{$this->pid}")) {
-                $fd = fopen("/tmp/worker.{$this->pid}", "r");
+            if (is_readable("{$this->path}/worker.{$this->pid}")) {
+                $fd = fopen("{$this->path}/worker.{$this->pid}", "r");
                 flock($fd, LOCK_SH);
 
                 $buffer = "";
@@ -188,7 +207,7 @@ class ForkWorker
                 $task->run();
                 $this->working = false;
 
-                $fd = fopen("/tmp/worker.{$this->pid}", "r+");
+                $fd = fopen("{$this->path}/worker.{$this->pid}", "r+");
                 flock($fd, LOCK_SH);
 
                 $buffer = "";
@@ -222,7 +241,7 @@ class ForkWorker
      */
     public function stack(&$task)
     {
-        $fd = fopen("/tmp/worker.{$this->pid}", "r+");
+        $fd = fopen("{$this->path}/worker.{$this->pid}", "r+");
         flock($fd, LOCK_SH);
 
         $buffer = "";
@@ -248,7 +267,7 @@ class ForkWorker
     public function unstack()
     {
         /*
-        $fd = fopen("/tmp/worker.{$this->pid}", "r+");
+        $fd = fopen("{$this->path}/worker.{$this->pid}", "r+");
         flock($fd, LOCK_EX);
 
         $buffer = "";
@@ -275,8 +294,8 @@ class ForkWorker
     {
         $size = 0;
 
-        if (file_exists("/tmp/worker.{$this->pid}")) {
-            $fd = fopen("/tmp/worker.{$this->pid}", "r");
+        if (file_exists("{$this->path}/worker.{$this->pid}")) {
+            $fd = fopen("{$this->path}/worker.{$this->pid}", "r");
             flock($fd, LOCK_SH);
 
             $buffer = "";
