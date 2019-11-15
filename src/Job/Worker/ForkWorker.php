@@ -73,16 +73,15 @@ class ForkWorker
                 $buffer .= fread($fd, 8192);
             }
 
-            fseek($fd, 0);
-            flock($fd, LOCK_EX);
-
-            $stack = unserialize($buffer);
-            foreach ($stack as $i => $task) {
-                if (call_user_func($collector, $task)) {
-                    unset($stack[$i]);
+            $stack = array();
+            foreach (unserialize($buffer) as $task) {
+                if (!call_user_func($collector, $task)) {
+                    $stack[] = $task;
                 }
             }
-            $stack = array_values($stack);
+
+            fseek($fd, 0);
+            flock($fd, LOCK_EX);
 
             fwrite($fd, serialize($stack));
             $size = count($stack);
@@ -199,7 +198,7 @@ class ForkWorker
 
                 $stack = unserialize($buffer);
                 foreach ($stack as $i => $work) {
-                    /** @var Stackable $work */
+                    /** @var StackableInterface $work */
                     if ($work->getId() == $task->getId()) {
                         $stack[$i] = $task;
                         break;
@@ -274,19 +273,24 @@ class ForkWorker
      */
     public function getStacked()
     {
-        $fd = fopen("/tmp/worker.{$this->pid}", "r");
-        flock($fd, LOCK_SH);
+        $size = 0;
 
-        $buffer = "";
-        while (!feof($fd)) {
-            $buffer .= fread($fd, 8192);
+        if (file_exists("/tmp/worker.{$this->pid}")) {
+            $fd = fopen("/tmp/worker.{$this->pid}", "r");
+            flock($fd, LOCK_SH);
+
+            $buffer = "";
+            while (!feof($fd)) {
+                $buffer .= fread($fd, 8192);
+            }
+
+            flock($fd, LOCK_UN);
+            fclose($fd);
+
+            $size = count(unserialize($buffer));
         }
 
-        flock($fd, LOCK_SH);
-        fclose($fd);
-
-        $stack = unserialize($buffer);
-        return count($stack);
+        return $size;
     }
 
     /**

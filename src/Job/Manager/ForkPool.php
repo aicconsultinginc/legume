@@ -51,10 +51,16 @@ class ForkPool implements ManagerInterface
     protected $startTime;
 
     /** @var int $timeout */
-    protected $timeout = 5;
+    protected $timeout = 1;
 
     /** @var ForkWorker[int] */
     protected $workers;
+
+    /** @var string $class */
+    protected $class;
+
+    /** @var array $ctor */
+    protected $ctor;
 
     /**
      * @inheritDoc
@@ -67,6 +73,9 @@ class ForkPool implements ManagerInterface
 
         $this->workers = array();
         $this->last = 0;
+
+        $this->class = ForkWorker::class;
+        $this->ctor = array();
     }
 
     /**
@@ -74,8 +83,10 @@ class ForkPool implements ManagerInterface
      */
     public function shutdown()
     {
+        // Cleanup the workers and unstack jobs.
         foreach ($this->workers as $i => $worker) {
             $worker->shutdown();
+            // TODO Unstack work
         }
 
         $this->running = false;
@@ -100,7 +111,8 @@ class ForkPool implements ManagerInterface
         }
 
         if (!isset($this->workers[$next])) {
-            $worker = new ForkWorker();
+            // TODO Type hint interface...
+            $worker = new $this->class(...$this->ctor);
             $worker->setLogger($this->logger);
             $worker->start();
 
@@ -131,7 +143,7 @@ class ForkPool implements ManagerInterface
      */
     public function collect($collector = null)
     {
-        if (!isset($collector)) {
+        if (!is_callable($collector)) {
             $collector = array($this, "collector");
         }
 
@@ -186,7 +198,7 @@ class ForkPool implements ManagerInterface
                     $this->logger->info("Pool received new job", array($task->getId()));
 
                     try {
-                        $this->submit($task);
+                        $count = $this->submit($task);
                     } catch (RuntimeException $e) {
                         $this->logger->critical($e->getMessage(), $e->getTrace());
                     }
@@ -201,19 +213,21 @@ class ForkPool implements ManagerInterface
                                 $this->logger->info("Pool shutting down idle worker", array($i));
                                 if (!$worker->shutdown()) {
                                     $this->logger->warning("Pool failed to shut down worker", array($i));
-                                } else {
-                                    $this->logger->info("Pool cleaning up worker", array($i));
-                                    $worker->collect(array($this, "collector"));
-                                    unset($this->workers[$i]);
                                 }
+                                $workers[] = $worker;
+                            } else {
+                                $this->logger->info("Pool cleaning up worker", array($i));
+                                $worker->collect(array($this, "collector"));
                             }
+                        } else {
+                            $workers[] = $worker;
                         }
                     }
                     $this->workers = $workers;
                 }
             } else {
                 // Sleep for 500 ms
-                usleep(500 * 1000);
+                sleep($this->timeout);
             }
 
             if (microtime(true) - $collectionTime >= $this->timeout) {
