@@ -51,7 +51,7 @@ class ThreadPool extends Pool implements ManagerInterface
     protected $startTime;
 
     /** @var int $timeout */
-    protected $timeout = 5;
+    protected $timeout = 1;
 
     /** @var ThreadWorker[int] */
     protected $workers;
@@ -79,7 +79,6 @@ class ThreadPool extends Pool implements ManagerInterface
         // Cleanup the workers and unstack jobs.
         parent::shutdown();
 
-        $this->collect();
         $this->running = false;
     }
 
@@ -105,9 +104,13 @@ class ThreadPool extends Pool implements ManagerInterface
         }
 
         if (!isset($this->workers[$next])) {
-            $this->workers[$next] = new $this->class(...$this->ctor);
-            $this->workers[$next]->setLogger($this->logger);
-            $this->workers[$next]->start();
+            // TODO Type hint interface...
+            $worker = new $this->class(...$this->ctor);
+            $worker->setLogger($this->logger);
+            $worker->start();
+
+            // Only add the worker to the pool after start() due to fork.
+            $this->workers[$next] = $worker;
         }
 
         return $this->submitTo($next, $task);
@@ -118,12 +121,13 @@ class ThreadPool extends Pool implements ManagerInterface
      */
     public function submitTo($worker, $task)
     {
+        $this->logger->info("Pool submitting task to worker", array($worker));
         if (!isset($this->workers[$worker])) {
             throw new RuntimeException("The selected worker ({$worker}) does not exist!");
         }
 
         $this->last = $worker;
-        //$this->work[] = $task;
+
         return $this->workers[$worker]->stack($task);
     }
 
@@ -132,7 +136,7 @@ class ThreadPool extends Pool implements ManagerInterface
      */
     public function collect($collector = null)
     {
-        if ($collector == null) {
+        if (!is_callable($collector)) {
             $collector = array($this, "collector");
         }
 
@@ -170,38 +174,43 @@ class ThreadPool extends Pool implements ManagerInterface
      */
     public function run()
     {
-        $this->running = true;
         $this->startTime = time();
+        $this->running = true;
 
         $count = 0;
-        while ($this->running) {
-            if ($this->size > $count) {
-                $stackable = $this->adaptor->listen(5);
+        $collectionTime = microtime(true);
 
-                if ($stackable !== null) {
-                    $this->logger->info("Pool received new job: {$stackable->getId()}");
+        while ($this->running) {
+            // Check if the pool is at capacity.
+            if (($this->size * $this->buffer) > $count) {
+                // If the size of the pool is less than the stacked size...
+                $task = $this->adaptor->listen($this->timeout);
+
+                if ($task !== null) {
+                    // If we received work from the adaptor
+                    $this->logger->info("Pool received new job", array($task->getId()));
 
                     try {
-                        $this->submit($stackable);
+                        $count = $this->submit($task);
                     } catch (RuntimeException $e) {
-                        $this->logger->error($e->getMessage(), $e->getTrace());
+                        $this->logger->critical($e->getMessage(), $e->getTrace());
                     }
                 } elseif (count($this->workers) > 0) {
-                    // If there is no more work, clean-up works.
-                    $this->logger->debug("Checking " . count($this->workers) . " worker(s) for idle.");
+                    // If there is no more work, clean-up workers.
+                    $this->logger->debug("Pool checking worker(s) for idle", array(count($this->workers)));
 
                     $workers = array();
                     foreach ($this->workers as $i => $worker) {
-                        $stacked = $worker->getStacked();
-                        if ($stacked < 1) {
+                        if ($worker->getStacked() < 1) {
                             if (!$worker->isShutdown()) {
-                                $this->logger->debug("Pool shutting down worker due to idle", array($i));
-                                $worker->shutdown();
+                                $this->logger->info("Pool shutting down idle worker", array($i));
+                                if (!$worker->shutdown()) {
+                                    $this->logger->warning("Pool failed to shut down worker", array($i));
+                                }
                                 $workers[] = $worker;
                             } else {
-                                if ($worker->isJoined()) {
-                                    $this->logger->debug("Pool cleaning up worker", array($i));
-                                }
+                                $this->logger->info("Pool cleaning up worker", array($i));
+                                $worker->collect(array($this, "collector"));
                             }
                         } else {
                             $workers[] = $worker;
@@ -210,11 +219,23 @@ class ThreadPool extends Pool implements ManagerInterface
                     $this->workers = $workers;
                 }
             } else {
-                $this->logger->debug("Pool sleeping");
-                usleep(250);
+                sleep($this->timeout);
             }
 
-            $count = $this->collect();
+            if (microtime(true) - $collectionTime >= $this->timeout) {
+                $count = $this->collect();
+                $collectionTime = microtime(true);
+            }
+        }
+
+        // Make sure each remaining child is complete...
+        foreach ($this->workers as $worker) {
+            /** @var ThreadWorker $worker */
+            if (!$worker->isJoined()) {
+                $worker->shutdown();
+                $worker->join();
+                $worker->collect(array($this, "collector"));
+            }
         }
     }
 

@@ -24,7 +24,7 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use RuntimeException;
 
-abstract class AbstractManager implements ManagerInterface
+trait ManagerTrait
 {
     /** @var QueueAdaptorInterface $adaptor */
     protected $adaptor;
