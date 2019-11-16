@@ -44,19 +44,6 @@ trait ManagerTrait
     /**
      * @inheritDoc
      */
-    public function __construct(QueueAdaptorInterface $adaptor)
-    {
-        $this->adaptor = $adaptor;
-        $this->logger = new NullLogger();
-        $this->running = false;
-
-        $this->workers = array();
-        $this->last = 0;
-    }
-
-    /**
-     * @inheritDoc
-     */
     public function submit($task)
     {
         $next = 0;
@@ -73,8 +60,8 @@ trait ManagerTrait
         }
 
         if (!isset($this->workers[$next])) {
-            // FIXME Replace with $this->createWorker()
-            $worker = new ForkWorker();
+            // TODO Type hint interface...
+            $worker = new $this->class(...$this->ctor);
             $worker->setLogger($this->logger);
             $worker->start();
 
@@ -105,7 +92,7 @@ trait ManagerTrait
      */
     public function collect($collector = null)
     {
-        if (!isset($collector)) {
+        if (!is_callable($collector)) {
             $collector = array($this, "collector");
         }
 
@@ -136,14 +123,6 @@ trait ManagerTrait
         }
 
         return $task->isComplete();
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function resize($size)
-    {
-        $this->size = $size;
     }
 
     /**
