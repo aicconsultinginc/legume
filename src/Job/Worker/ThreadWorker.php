@@ -19,11 +19,12 @@
 
 namespace Legume\Job\Worker;
 
+use Legume\Job\WorkerInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Worker;
 
-class ThreadWorker extends Worker
+class ThreadWorker extends Worker implements WorkerInterface
 {
     /** @var int $startTime */
     protected $startTime;

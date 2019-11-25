@@ -23,6 +23,7 @@ use Legume\Job\ManagerInterface;
 use Legume\Job\QueueAdaptorInterface;
 use Legume\Job\StackableInterface;
 use Legume\Job\Worker\ForkWorker;
+use Legume\Job\WorkerInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use RuntimeException;
@@ -111,10 +112,10 @@ class ForkPool implements ManagerInterface
         }
 
         if (!isset($this->workers[$next])) {
-            // TODO Type hint interface...
+            /** @var WorkerInterface $worker */
             $worker = new $this->class(...$this->ctor);
             $worker->setLogger($this->logger);
-            $worker->start();
+            $worker->start(); // TODO We should pass the ipc path here.
 
             // Only add the worker to the pool after start() due to fork.
             $this->workers[$next] = $worker;

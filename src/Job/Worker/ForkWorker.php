@@ -21,11 +21,12 @@ namespace Legume\Job\Worker;
 
 use Exception;
 use Legume\Job\StackableInterface;
+use Legume\Job\WorkerInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use RuntimeException;
 
-class ForkWorker
+class ForkWorker implements WorkerInterface
 {
     /** @var int $startTime */
     protected $startTime;

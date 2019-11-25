@@ -106,27 +106,33 @@ class Daemon implements LoggerAwareInterface
                 ->setDefaultValue(false)
         );
 
+        $threads = array(
+            Option::create('T', "threads")
+                ->setDescription("Use posix threads for multiprocessing")
+                ->setDefaultValue(false)
+        );
+
         $opts = new GetOpt();
         $opts->addCommands(array(
             Command::create("start", [$this, "start"])
                 ->setDescription("Start the Legume job manager")
-                ->addOptions(array_merge($queue, $manager, $suExec, $daemon)),
+                ->addOptions(array_merge($queue, $manager, $suExec, $daemon, $threads)),
 
             Command::create("stop", [$this, "stop"])
                 ->setDescription('Stop a job manager background process'),
         ))
-            ->addOptions(array(
-                Option::create('H', "help")
-                    ->setDescription("Display a command contextual help"),
+        ->addOptions(array(
+            Option::create('H', "help")
+                ->setDescription("Display a command contextual help"),
 
-                Option::create('P', "pid", GetOpt::REQUIRED_ARGUMENT)
-                    ->setDescription("A file to store the pid of the job manager process"),
+            Option::create('P', "pid", GetOpt::REQUIRED_ARGUMENT)
+                ->setDescription("A file to store the pid of the job manager process"),
 
-                Option::create('v', "verbose", GetOpt::OPTIONAL_ARGUMENT)
-                    ->setDescription("Set the verbosity of the job manager")
-                    ->setValidation("is_numeric")
-                    ->setValue(5)
-            ));
+            Option::create('v', "verbose", GetOpt::OPTIONAL_ARGUMENT)
+                ->setDescription("Set the verbosity of the job manager")
+                ->setValidation("is_numeric")
+                ->setValue(5)
+        ));
 
         return $opts;
     }
@@ -298,7 +304,15 @@ class Daemon implements LoggerAwareInterface
      */
     protected function start()
     {
-        $this->pool = $this->container->get(ForkPool::class);
+        $threads = $this->opts->getOption("therads");
+        if ($threads) {
+            if (!extension_loaded("pthreads")) {
+                throw new Exception("The pthreads extension is required for thread support");
+            }
+            $this->pool = $this->container->get(ThreadPool::class);
+        } else {
+            $this->pool = $this->container->get(ForkPool::class);
+        }
 
         if (function_exists("pcntl_async_signals")) {
             pcntl_async_signals(true);
